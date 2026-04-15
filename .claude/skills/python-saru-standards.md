@@ -1,20 +1,25 @@
 ---
 name: python-saru-standards
 description: |
-  Enforces SARU Dynamics Python coding conventions across all simulator
-  and analysis repos (LapTimeSimulator_*, SARU_LapAnalyzer, Lap_Time_Hase).
-  Activate when creating or reviewing any .py file, dataclass, ABC, or module.
+  Enforces SARU Dynamics Python coding conventions across all lap time
+  simulator and analysis projects (CopaTruck, StockCar, Generic, LapAnalyzer).
+  Activate when creating or reviewing any Python file: models, solvers,
+  pipelines, tests, or configuration modules.
 ---
 
-## Module Header (mandatory)
+## Module Template
 
 ```python
 """
 Module: <name>
 Description: <one-line purpose>
-Reference: <Pacejka 2012 / SAE XXXX / ISO XXXX>
+Reference: <Pacejka 2012 / SAE XXXX / internal>
+Author: Vitor Toledo | SARU Dynamics
+Updated: YYYY-MM-DD
 """
 from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Protocol
 ```
 
 ## Naming Conventions
@@ -22,75 +27,69 @@ from __future__ import annotations
 | Element | Convention | Example |
 |---------|------------|---------|
 | Classes | PascalCase | `TwoPassSolver` |
-| Functions / variables | snake_case | `compute_corner_speed` |
-| Constants | UPPER_CASE | `G_ACCELERATION` |
-| Private attributes | `_name` | `_state` |
-| ABCs | Noun + `(ABC)` | `TireModel(ABC)` |
+| Functions / variables | snake_case | `compute_lateral_force` |
+| Constants | UPPER_CASE | `G_ACCEL = 9.81` |
+| Private attributes | `_` prefix | `self._state` |
+| Abstract base classes | Suffix `ABC` or use ABC directly | `TireModel(ABC)` |
+
+## Type Hints & Docstrings
+
+- Type hints required on ALL public function and method signatures
+- Docstrings: Google Style on all classes and public methods
+- `__repr__` mandatory on all dataclasses
 
 ## Dataclass Rules
 
-```python
-@dataclass
-class VehicleParams:
-    """
-    Single source of truth for vehicle physical parameters.
-    Never hardcode vehicle constants outside this class.
-    """
-    mass: float          # kg
-    wheelbase: float     # m
-    # ... all fields documented with units
-    
-    def __repr__(self) -> str: ...
-    def __post_init__(self) -> None: ...  # validation
-```
-
-- `__repr__` mandatory on all dataclasses
-- `__post_init__` for physical range validation
-- Serialization via `.json` (vehicle) or `.yaml` (config/season)
+- Use `@dataclass` for all parameter and result structures
+- No hardcoding inside dataclass defaults — use `field(default_factory=...)`
+- Serialization: JSON (vehicle presets) or YAML (configs) or HDF5 (tracks)
+- `VehicleParams` is SSoT — never duplicate vehicle constants elsewhere
 
 ## ABC Rules
 
-```python
-class TireModel(ABC):
-    @abstractmethod
-    def compute_force(self, slip: float, Fz: float) -> tuple[float, float]:
-        """Compute lateral and longitudinal tire forces."""
-        ...
-```
+- Every interchangeable subsystem gets an ABC (TireModel, Solver, TrackLoader)
+- No abstract method may be left unimplemented in any subclass
+- Switching implementation must require zero changes outside the module
 
-- No subclass may leave abstract methods unimplemented
-- Swapping subsystems must not require changes outside the respective module
+## Composition Rule
 
-## Type Hints and Docstrings
+- `LapSimulator` **contains** Vehicle, Track, Solver — never inherits them
+- `setup_optimizer` **wraps** LapSimulator — optimization loop only
+- `weekend_manager` **uses** LapSimulator — orchestration only
 
-- Type hints on ALL public function and method signatures
-- Google-style docstrings on all public classes and methods:
+## Module Boundaries (StockCar / Generic)
 
-```python
-def compute_corner_speed(self, radius: float, mu: float) -> float:
-    """Compute maximum cornering speed for a given radius.
-
-    Args:
-        radius: Corner radius in meters.
-        mu: Tire-road friction coefficient.
-
-    Returns:
-        Maximum speed in m/s.
-    """
-```
-
-## Module Boundary Rules
-
-| Module | Contains | Never put here |
-|--------|---------|----------------|
-| `core/` or `src/simulation/` | Physics, solver | I/O, UI, strategy |
+| Module | Owns | Must NOT contain |
+|--------|------|------------------|
+| `core/` | Physics, solver | I/O, UI, strategy |
 | `data_pipeline/` | Ingest, validate | Simulation logic |
-| `visualization/` | Streamlit, plots | Physics model |
-| `config/` | Parameters, env | Business logic |
+| `kpis/` | KPI computation | Raw simulation |
+| `setup_optimizer/` | Optimisation loop | Physics model |
+| `weekend_manager/` | Session workflow | Lap physics |
 
-## Quality Gates
+## Prohibited Patterns
+
+- No magic numbers — all constants in dataclass fields or named module-level constants
+- No hardcoding of vehicle, track or season values in Python source
+- No multiple inheritance — Mixins only for orthogonal behaviours
+- `__init__.py` exports only the public interface
+
+## Testing
 
 - `pytest tests/` must pass 100% before any commit
-- `ruff check .` must pass with zero errors
-- Never push with failing tests
-- `__init__.py` exports only the public interface
+- Unit tests: `tests/test_<module>.py`
+- Integration tests: `tests/test_integration.py`
+- Never propose a commit with failing tests
+
+## Git — Conventional Commits
+
+```
+feat     — new feature or simulation capability
+fix      — bug fix or parameter correction
+refactor — restructure without behaviour change
+sim      — simulation result update or scenario change
+docs     — README, comments, CLAUDE.md, reports
+chore    — cleanup, config, tooling, dependencies
+test     — add or update validation / regression tests
+perf     — performance improvement (solver speed, memory)
+```

@@ -1,48 +1,39 @@
 ---
 name: python-telemetry
 description: |
-  Protocol for ingesting, cleaning, and analysing motorsport telemetry data
-  (MoTec .ld, CSV, HDF5). Activate when processing lap data, comparing setups,
-  exporting analysis reports, or building data pipeline modules.
-  Applies to SARU_LapAnalyzer and all LapTimeSimulator repos.
+  Protocol for ingesting, processing and analysing motorsport telemetry data
+  (MoTec .ld, CSV, iRacing, ACC, custom formats). Activate when working on
+  data pipelines, lap analysis, driver metrics, or KPI computation.
 ---
 
 ## Pipeline Stages
 
-1. **Ingest** — identify format: MoTec .ld, CSV, Parquet, HDF5
-2. **Validate** — check mandatory channels, sampling frequency, time gaps
-3. **Synchronise** — align data by track distance (not wall-clock time)
-4. **Clean** — outliers via IQR or physical threshold (e.g. `|ax| > 50 m/s²` → flag)
-5. **Analyse** — pace, slip angle, brake balance, tyre load, mini-sector delta
-6. **Export** — CSV + PNG (300 dpi) per analysis; HDF5 for structured datasets
+1. **Ingest**: identify format (MoTec .ld, CSV, Parquet, HDF5)
+2. **Validate**: check mandatory channels, sampling rate, gaps, outliers
+3. **Synchronise**: align all channels by distance (not time)
+4. **Clean**: remove outliers via physical threshold (e.g. ax > 5g → suspect)
+5. **Analyse**: compute KPIs, sector deltas, driver metrics
+6. **Export**: CSV + PNG figure (300 dpi minimum) per analysis
 
 ## Mandatory Channels
 
 | Channel | Unit | Notes |
 |---------|------|-------|
-| `vx` | m/s | Longitudinal speed |
-| `ax` | m/s² | Longitudinal acceleration |
-| `ay` | m/s² | Lateral acceleration |
-| `steering_angle` | deg | |
-| `lap_distance` | m | Primary alignment reference |
-| `lap_time` | s | |
+| `vx` | m/s | longitudinal velocity |
+| `ax`, `ay` | m/s² | longitudinal and lateral acceleration |
+| `steering_angle` | deg | at steering wheel |
+| `lap_distance` | m | preferred over lap_time for synchronisation |
+| `gear` | int | current gear |
 
-## Distance-Based Alignment (mandatory)
+## Data Quality Rules
 
-- All cross-lap and cross-setup comparisons must align on `lap_distance`, not time
-- Resample to uniform distance grid before any delta computation
-- Grid resolution: 1 m default, 0.5 m for high-precision sector analysis
+- Flag any sample where `sqrt(ax**2 + ay**2) > 5.0 * G` as outlier
+- Resample to uniform distance grid (1 m spacing) before any analysis
+- Never interpolate more than 5 consecutive missing samples — flag gap instead
+- All channels must share the same distance axis before comparison
 
 ## Output Standards
 
-- CSV: `results/<circuit>_<date>_<analysis_type>.csv`
-- PNG: `results/<circuit>_<date>_<analysis_type>.png` — 300 dpi, white background
-- Never commit raw telemetry files to the repository (gitignore)
-
-## Data Quality Flags
-
-| Flag | Condition | Action |
-|------|-----------|--------|
-| `OUTLIER` | Value outside physical range | Replace with NaN, log warning |
-| `GAP` | Missing data > 0.1 s | Log gap, do not interpolate silently |
-| `SYNC_ERROR` | Distance non-monotonic | Raise exception before processing |
+- File naming: `<circuit>_<session>_<driver>_<YYYYMMDD>.csv`
+- Figures: 300 dpi PNG, axes labelled with units, legend identifying each run
+- Reports: Markdown with embedded figures in `reports/` or `docs/`

@@ -1,52 +1,46 @@
 ---
 name: python-solver-workflow
 description: |
-  Rules and validation protocol for the SARU two-pass lap time solver.
-  Activate when modifying solver logic, adding vehicle parameters, changing
-  tire model, or validating simulation results against known lap times.
-  Applies to LapTimeSimulator_CopaTruck, LapTimeSimulator_StockCar,
-  LapTimeSimulator_Generic, LapTimeSimulator_SARU.
+  Protocol for implementing, validating and debugging the Two-Pass lap time
+  solver used across all SARU simulators. Activate when working on solver
+  logic, pass algorithms, grip limits, or cross-validation against reference
+  lap times.
 ---
 
-## Two-Pass Solver — Core Rules
+## Two-Pass Solver Overview
 
-1. **Forward pass**: maximum acceleration at each point, limited by traction circle and lateral velocity
-2. **Backward pass**: minimum braking speed to not exceed corner entry speed
-3. **Never alter the two-pass method without cross-validation against a known reference lap time.**
-4. If modifying solver: present proposed change + expected delta lap time before editing
+```
+Forward pass  →  max acceleration at each track point
+                  constraint: traction circle + lateral velocity limit
+Backward pass →  max braking at each corner entry
+                  constraint: not exceeding corner speed from downstream
+Result        →  velocity profile v(s) over full lap distance s
+```
+
+## Implementation Rules
+
+- Never alter pass logic without cross-validating against at least one known lap time
+- Grip limit must be computed from friction circle: `a_total = sqrt(ax**2 + ay**2) <= mu * g`
+- Gear selection must maintain RPM within engine band — never hardcode gear changes
+- Aero drag: always applied in forward pass; lift (if any) affects normal force and grip
 
 ## Validation Protocol
 
-Before any solver change is committed:
-1. Run baseline simulation → record reference lap time
-2. Apply change
-3. Run post-change simulation → compare lap time delta
-4. Acceptable regression: ≤ 0.1 s on reference circuit
-5. If delta > 0.1 s → flag as regression, revert and re-analyse
+1. Select reference circuit with known lap time (±0.5 s tolerance)
+2. Run solver with default vehicle preset
+3. Compare predicted vs reference: lap time, speed trace, sector times
+4. If delta > 0.5 s: investigate grip model, aero model, gear selection in that order
+5. Document result in `docs/validation_<circuit>_<date>.md`
 
-## Vehicle Parameter Protocol
+## Debug Checklist
 
-- Vehicle parameters: loaded exclusively from `data/vehicles/<name>.json` or `.yaml`
-- Never hardcode mass, Cf, Cr, Cd, gear ratios or brake balance in Python source
-- New vehicle: implement via VehicleParams dataclass → save to `data/vehicles/`
-- Parameter change: update JSON/YAML → re-run validation
+- [ ] Velocity profile physically plausible (no negative speed, no jumps > 50 km/h/step)
+- [ ] Friction circle not exceeded at any point
+- [ ] Engine RPM within band at all gear changes
+- [ ] HDF5 track geometry loaded correctly (check centerline continuity)
+- [ ] Backward pass terminal condition: entry speed ≤ maximum corner speed
 
-## Track Protocol
+## Cross-Project Compatibility
 
-- Track geometry: loaded from `tracks/<name>.hdf5` or `data/tracks/<name>.yaml`
-- Never embed centerline coordinates or sector boundaries in Python source
-- New circuit: use CircuitData + appropriate writer class
-
-## Subsystem Swap Protocol
-
-To swap tire model or solver implementation:
-1. Verify ABC interface is fully implemented
-2. Run existing test suite — must pass 100%
-3. Run cross-validation on reference circuit
-4. Update CLAUDE.md with new subsystem entry
-
-## Prohibited Modifications
-
-- Do not add `if category == ...` branching inside core solver
-- Do not read files inside solver methods — pass pre-loaded data as arguments
-- Do not cache simulation state between calls without explicit design review
+The two-pass method is identical across CopaTruck, StockCar, Generic and SARU simulators.
+Any fix or improvement to the solver algorithm must be propagated to all active repos.
