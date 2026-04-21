@@ -1,44 +1,41 @@
 """
-Simulation modes definition for the lap time simulator.
+Simulation modes module for lap time simulator.
 
-Defines the available simulation scenarios and their configuration:
-    - STANDING_START  : launch from rest (v0 = 0), includes clutch slip model
-    - ROLLING_START   : constant-velocity launch (v0 = configurable)
-    - QUALIFYING      : single fastest lap, no fuel/tyre degradation
-    - RACE            : multi-lap with tyre/fuel degradation (future)
+Defines the SimulationMode enum and SimulationConfig dataclass that
+control how the GGV solver is initialised and executed for each
+simulation scenario.
 
-For each mode, the SimulationConfig dataclass holds:
-    - Initial conditions
-    - Driver model parameters (shift RPM, brake aggressiveness, etc.)
-    - Target KPIs (what the optimizer minimizes)
-    - Telemetry channels to log
-
-Author: Lap Time Simulator Team
-Date: 2026-03-10
-References:
-    - Hakewill, J. (2010). Lap Time Simulation Model for Racing Cars.
-    - Jain et al. (2020). Computing the racing line using Bayesian optimization. arXiv:2002.04794
+References
+----------
+- Segers, J. (2014). Analysis Techniques for Racecar Data Acquisition,
+  2nd Ed. SAE International.
+- Brayshaw, D.L. & Harrison, M.F. (2005). A quasi steady state approach
+  to race car lap simulation. Proc. IMechE, Part D.
+- Pi Toolbox Apostila de Treinamento — Porsche Carrera Cup Brasil (2014).
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, auto
 from typing import List, Optional
+
+from ..vehicle.setup import VehicleSetup, get_default_setup
 
 
 class SimulationMode(Enum):
     """
-    Enumeration of supported simulation scenarios.
+    Enumeration of available simulation scenarios.
 
-    Each mode determines:
-        - Initial velocity condition
-        - Whether tyre/fuel degradation is active
-        - Which driver model parameters are used
-        - Target optimization metric
+    QUALIFYING    : single fastest lap from equilibrium speed.
+    FLYING_LAP    : lap from a prescribed constant entry speed.
+    STANDING_START: lap from standstill with launch sequence.
+    ROLLING_START : alias for FLYING_LAP (backward compatibility).
     """
-    STANDING_START = "standing_start"   # Largada parada (v0 = 0)
-    ROLLING_START  = "rolling_start"    # Largada em velocidade constante
-    QUALIFYING     = "qualifying"        # Volta única mais rápida
-    RACE           = "race"             # Corrida com degradação (futuro)
+    QUALIFYING     = auto()
+    FLYING_LAP     = auto()
+    STANDING_START = auto()
+    ROLLING_START  = auto()
 
 
 @dataclass
@@ -46,26 +43,18 @@ class DriverInputChannels:
     """
     Telemetry channels for driver input monitoring and optimization.
 
-    These are the outputs to be logged at each simulation time step
-    and compared against real telemetry during validation.
-
     All channels are time-series arrays aligned with the simulation time vector.
     """
-    # Control inputs (0–1 normalized unless stated)
-    throttle: List[float] = field(default_factory=list)       # [0–1]  — acelerador
-    brake: List[float] = field(default_factory=list)          # [0–1]  — freio normalizado
-    steering_angle: List[float] = field(default_factory=list) # [rad]  — ângulo de volante
-    gear: List[int] = field(default_factory=list)             # [1–6]  — marcha engajada
-
-    # Timing channels
-    shift_events: List[float] = field(default_factory=list)   # [s]    — timestamps de trocas
-    braking_points: List[float] = field(default_factory=list) # [m]    — distância de frenagem
-
-    # Derived dynamics
-    long_g: List[float] = field(default_factory=list)         # [m/s²] — acc. longitudinal
-    lat_g: List[float] = field(default_factory=list)          # [m/s²] — acc. lateral
-    speed: List[float] = field(default_factory=list)          # [km/h] — velocidade
-    rpm: List[float] = field(default_factory=list)            # [rpm]  — rotação do motor
+    throttle: List[float] = field(default_factory=list)
+    brake: List[float] = field(default_factory=list)
+    steering_angle: List[float] = field(default_factory=list)
+    gear: List[int] = field(default_factory=list)
+    shift_events: List[float] = field(default_factory=list)
+    braking_points: List[float] = field(default_factory=list)
+    long_g: List[float] = field(default_factory=list)
+    lat_g: List[float] = field(default_factory=list)
+    speed: List[float] = field(default_factory=list)
+    rpm: List[float] = field(default_factory=list)
 
 
 @dataclass
@@ -73,81 +62,111 @@ class SimulationConfig:
     """
     Full configuration for a single simulation run.
 
-    Bundles the simulation mode, initial conditions, and driver model
-    parameters into a single object passed to the solver.
-
-    Attributes:
-        mode            : SimulationMode — scenario type
-        v0              : Initial velocity [m/s] (0 for standing start)
-        lap_count       : Number of laps to simulate
-        dt              : Integration time step [s]
-        upshift_rpm     : RPM threshold for automatic upshift
-        downshift_rpm   : RPM threshold for automatic downshift
-        brake_efficiency: Driver braking efficiency scalar [0–1]
-        throttle_smoothing: Low-pass filter coefficient for throttle [0–1]
-        track_id        : Track identifier string (e.g., 'interlagos')
-        notes           : Free-text annotation for this run
+    Parameters
+    ----------
+    mode : SimulationMode
+    setup : VehicleSetup
+    n_laps : int
+    v_entry_kmh : float
+        Initial speed for FLYING_LAP [km/h].
+    launch_rpm : float
+        Clutch-drop RPM for STANDING_START [rev/min].
+    track_temperature_c : float
+        Track surface temperature [degC].
+    tyre_compound : str
+    export_driver_inputs : bool
+    notes : str
     """
     mode: SimulationMode = SimulationMode.QUALIFYING
+    setup: VehicleSetup = field(default_factory=get_default_setup)
 
-    # Initial conditions
-    v0: float = 0.0          # [m/s] — initial velocity
-    lap_count: int = 1       # number of laps (>1 activates degradation in RACE mode)
-
-    # Solver parameters
-    dt: float = 0.01         # [s] — integration timestep (100 Hz)
-
-    # Driver model — shift strategy
-    upshift_rpm: Optional[float] = None    # None → use vehicle default
-    downshift_rpm: Optional[float] = None  # None → use vehicle default
-
-    # Driver model — inputs
-    brake_efficiency: float = 1.0          # [-] 1.0 = optimal braking
-    throttle_smoothing: float = 0.05       # [-] lower = sharper response
-
-    # Standing start parameters (only used in STANDING_START mode)
-    clutch_slip_duration: float = 0.4      # [s] — clutch engagement ramp
-    launch_rpm: float = 4500.0             # [rpm] — launch control target RPM
-
-    # Metadata
-    track_id: str = "interlagos"
+    n_laps: int = 1
+    track_temperature_c: float = 35.0
+    tyre_compound: str = "slick_dry"
+    export_driver_inputs: bool = True
     notes: str = ""
 
-    def __post_init__(self) -> None:
-        """Enforce mode-specific initial condition constraints."""
-        if self.mode == SimulationMode.STANDING_START and self.v0 != 0.0:
-            self.v0 = 0.0  # force zero initial velocity
-        if self.mode == SimulationMode.QUALIFYING:
-            self.lap_count = 1  # qualifying = always single lap
+    v_entry_kmh: float = 100.0
+    launch_rpm: float = 4500.0
+    wheelspin_limit_slip: float = 0.25
+
+    # Backward-compat aliases for HEAD-era attributes
+    v0: float = 0.0
+    lap_count: int = 1
+
+    def is_qualifying(self) -> bool:
+        return self.mode == SimulationMode.QUALIFYING
+
+    def is_flying_lap(self) -> bool:
+        return self.mode == SimulationMode.FLYING_LAP
+
+    def is_standing_start(self) -> bool:
+        return self.mode in (SimulationMode.STANDING_START,)
+
+    def is_rolling_start(self) -> bool:
+        return self.mode in (SimulationMode.ROLLING_START, SimulationMode.FLYING_LAP)
+
+    def describe(self) -> str:
+        """Human-readable summary string for logging."""
+        base = (
+            f"[{self.mode.name}] Setup='{self.setup.setup_name}' "
+            f"Tyres={self.tyre_compound} T_track={self.track_temperature_c}\u00b0C"
+        )
+        if self.is_flying_lap():
+            base += f" v_entry={self.v_entry_kmh:.1f} km/h"
+        if self.is_standing_start():
+            base += f" launch_rpm={self.launch_rpm:.0f} rpm"
+        return base
+
 
     @classmethod
-    def qualifying(cls, track_id: str = "interlagos", dt: float = 0.01) -> 'SimulationConfig':
+    def qualifying(cls, track_id: str = "interlagos", **kwargs) -> "SimulationConfig":
         """Shortcut constructor for qualifying simulation."""
-        return cls(
-            mode=SimulationMode.QUALIFYING,
-            v0=0.0,
-            lap_count=1,
-            dt=dt,
-            track_id=track_id,
-        )
+        return cls(mode=SimulationMode.QUALIFYING, n_laps=1, lap_count=1, **kwargs)
 
     @classmethod
-    def standing_start(cls, track_id: str = "interlagos", dt: float = 0.01) -> 'SimulationConfig':
+    def standing_start(cls, track_id: str = "interlagos", **kwargs) -> "SimulationConfig":
         """Shortcut constructor for standing start simulation."""
-        return cls(
-            mode=SimulationMode.STANDING_START,
-            v0=0.0,
-            lap_count=1,
-            dt=dt,
-            track_id=track_id,
-        )
+        return cls(mode=SimulationMode.STANDING_START, v0=0.0, lap_count=1, **kwargs)
 
     @classmethod
-    def rolling_start(cls, v0_kmh: float, track_id: str = "interlagos") -> 'SimulationConfig':
+    def rolling_start(cls, v0_kmh: float, track_id: str = "interlagos", **kwargs) -> "SimulationConfig":
         """Shortcut constructor for rolling start at constant speed."""
         return cls(
             mode=SimulationMode.ROLLING_START,
             v0=v0_kmh / 3.6,
+            v_entry_kmh=v0_kmh,
             lap_count=1,
-            track_id=track_id,
+            **kwargs,
         )
+
+
+def get_default_config(
+    mode: SimulationMode = SimulationMode.QUALIFYING,
+    setup: Optional[VehicleSetup] = None,
+) -> SimulationConfig:
+    """Return a ready-to-use SimulationConfig with sensible defaults."""
+    return SimulationConfig(
+        mode=mode,
+        setup=setup if setup is not None else get_default_setup(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Driver input channel specification
+# ---------------------------------------------------------------------------
+
+DRIVER_INPUT_CHANNELS = [
+    ("distance_m",   "m",    "Cumulative distance along track centreline"),
+    ("lap_time_s",   "s",    "Cumulative lap time"),
+    ("v_kmh",        "km/h", "Vehicle speed"),
+    ("ax_long_g",    "g",    "Longitudinal acceleration (+ = accel, - = braking)"),
+    ("ay_lat_g",     "g",    "Lateral acceleration (+ = left, - = right)"),
+    ("throttle_pct", "%",    "Throttle pedal / drive torque request [0-100]"),
+    ("brake_pct",    "%",    "Brake pedal pressure request [0-100]"),
+    ("steering_deg", "deg",  "Steering wheel angle (+ = left)"),
+    ("gear",         "-",    "Engaged gear number"),
+    ("rpm",          "rpm",  "Engine rotational speed"),
+]
+
+DRIVER_INPUT_CHANNEL_NAMES: list = [ch[0] for ch in DRIVER_INPUT_CHANNELS]

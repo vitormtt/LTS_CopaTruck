@@ -1,161 +1,256 @@
+# src/simulation/lap_time_solver.py
 """
-Simulador de Lap Time para Caminhão Copa Truck
-Modelo 3-DOF (Longitudinal + Lateral + Rolagem) com Pneu Térmico
+Simulador de Lap Time — Solver principal
+
+Ponto de entrada principal: run_simulation(config, vehicle_params, circuit)
+Legacy entry point preservado: run_bicycle_model(params_dict, circuit, config)
+
+Modos suportados (via SimulationMode):
+  QUALIFYING    — volta de classificação a partir de velocidade de equilíbrio
+  FLYING_LAP    — volta com velocidade de entrada prescrita (v_entry_kmh)
+  STANDING_START— largada parada com modelo de patinagem e rampa de embreagem
+
+O solver aplica VehicleSetup automaticamente antes de resolver,
+modificando parâmetros de aero, pneus e freio conforme configurado.
+
+Output: SimulationResult com canais de telemetria alinhados ao
+nomenclador Pi Toolbox / MoTeC (Porsche Carrera Cup Brasil).
+
+Referencias
+-----------
+Brayshaw & Harrison (2005). A quasi steady state approach to race
+  car lap simulation. Proc. IMechE Part D, 219(3), 383-394.
+Segers, J. (2014). Analysis Techniques for Racecar Data Acquisition,
+  2nd Ed. SAE International.
 """
-from src.vehicle.vehicle_model import BicycleVehicle2DOF
-from src.vehicle.tires import ThermalPacejkaTire
-from src.vehicle.transmission import Transmission
-from src.vehicle.brakes import PneumaticBrake
-from src.vehicle.engine import ICEEngine
+
+from __future__ import annotations
+
+import logging
+import time as _time
+from dataclasses import dataclass, field
+from typing import Dict, Optional
+
 import numpy as np
 import pandas as pd
-import logging
-import time
-import sys
-from pathlib import Path
-from scipy.signal import savgol_filter
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
+from .simulation_modes import SimulationConfig, SimulationMode
+from ..vehicle.parameters import VehicleParams
+from ..vehicle.setup import apply_setup_to_params
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def build_modular_truck_from_dict(params_dict: dict) -> BicycleVehicle2DOF:
+# ---------------------------------------------------------------------------
+# Legacy local VehicleParams dataclass (kept for run_bicycle_model compat)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _LegacyVehicleParams:
+    """Internal flat params used by legacy run_bicycle_model only."""
+    m: float = 5000.0
+    lf: float = 2.1
+    lr: float = 2.3
+    h_cg: float = 1.1
+    Cf: float = 120000.0
+    Cr: float = 120000.0
+    mu: float = 1.1
+    r_wheel: float = 0.65
+    P_max: float = 600000.0
+    T_max: float = 3700.0
+    rpm_max: float = 2800.0
+    rpm_idle: float = 800.0
+    n_gears: int = 12
+    gear_ratios: list = None
+    final_drive: float = 5.33
+    max_decel: float = 7.5
+    Cx: float = 0.85
+    A_front: float = 8.7
+    Cl: float = 0.0
+
+    def __post_init__(self):
+        if self.gear_ratios is None:
+            self.gear_ratios = [14.0, 10.5, 7.8, 5.9, 4.5, 3.5, 2.7, 2.1,
+                                 1.6, 1.25, 1.0, 0.78]
+        self.L = self.lf + self.lr
+        self.Iz = self.m * (self.lf**2 + self.lr**2) / 2
+
+
+# ---------------------------------------------------------------------------
+# SimulationResult
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SimulationResult:
     """
-    Instantiate a BicycleVehicle2DOF from a flat solver-dict.
+    Output container for a completed simulation run.
 
-    Key solver_dict fields (all optional, truck defaults shown):
-        P_max            [W]       max engine power
-        T_max            [Nm]      max engine torque
-        rpm_max          [rpm]     redline
-        rpm_idle         [rpm]     idle RPM
-        torque_curve_rpm list[float]  full curve RPM points (overrides proxy)
-        torque_curve_nm  list[float]  full curve torque points
-        r_wheel          [m]       wheel radius
-        m                [kg]      total mass
-        gear_ratios      list[float]  per-gear ratios
-        final_drive      [-]       final drive ratio
-        mu               [-]       peak tyre friction coefficient
-        pacejka_B/C/D/E           Magic Formula coefficients
-        P_cold_bar       [bar]     cold tyre pressure (4.5 truck | 1.8 GT3)
-        lf, lr           [m]       CG to front/rear axle
-        track_width      [m]       average track width
-        k_roll           [Nm/rad]  combined ARB roll stiffness
-                                   = arb_front_stiffness + arb_rear_stiffness
-                                   default 4/4 setup: 230k+185k = 415k Nm/rad
-                                   high_df  5/3 setup: 300k+130k = 430k Nm/rad
-        h_cg             [m]       CG height
-        gear_min         [-]       minimum gear clamp (1 for car, 4 for truck)
+    All array channels are 1-D numpy arrays of length n (number of track
+    points). Scalar KPIs are pre-computed at construction.
+
+    Attributes
+    ----------
+    lap_time : float
+        Total simulated lap time [s].
+    mode : SimulationMode
+        Mode used for this simulation.
+    setup_name : str
+        Name tag of the VehicleSetup applied.
+    distance : np.ndarray
+        Cumulative distance along track [m].
+    time : np.ndarray
+        Cumulative lap time at each point [s].
+    v_kmh : np.ndarray
+        Speed [km/h].
+    ax_long_g : np.ndarray
+        Longitudinal acceleration [g]. Positive = acceleration.
+    ay_lat_g : np.ndarray
+        Lateral acceleration [g]. Positive = left.
+    throttle_pct : np.ndarray
+        Throttle demand [0–100 %].
+    brake_pct : np.ndarray
+        Brake demand [0–100 %].
+    steering_deg : np.ndarray
+        Estimated steering wheel angle [deg].
+    gear : np.ndarray
+        Engaged gear (integer).
+    rpm : np.ndarray
+        Engine RPM.
+    radius : np.ndarray
+        Track corner radius at each point [m].
+    temp_tyre_c : np.ndarray
+        Tyre bulk temperature [degC].
+    tyre_pressure_bar : np.ndarray
+        Hot tyre pressure estimate [bar].
+    fuel_used_l : np.ndarray
+        Cumulative fuel consumption [L].
     """
-    engine_config = {
-        'displacement':   params_dict.get('displacement', 12.0),
-        'max_power_kw':   params_dict.get('P_max', 600000) / 1000.0,
-        'max_power_rpm':  params_dict.get('rpm_max', 2000),
-        'max_torque_nm':  params_dict.get('T_max', 3700),
-        'max_torque_rpm': params_dict.get('rpm_max', 1300),
-        'rpm_max':        params_dict.get('rpm_max', 2800),
-        'idle_rpm':       params_dict.get('rpm_idle', 800),
-        'redline_rpm':    params_dict.get('rpm_max', 2800),
-        'bsfc':           params_dict.get('bsfc', 210),
-        'fuel_density':   params_dict.get('fuel_density', 0.85),
-    }
-    if 'torque_curve_rpm' in params_dict and 'torque_curve_nm' in params_dict:
-        engine_config['torque_curve_rpm'] = params_dict['torque_curve_rpm']
-        engine_config['torque_curve_nm'] = params_dict['torque_curve_nm']
+    lap_time: float
+    mode: SimulationMode
+    setup_name: str
 
-    engine = ICEEngine(engine_config)
+    distance: np.ndarray
+    time: np.ndarray
+    v_kmh: np.ndarray
+    ax_long_g: np.ndarray
+    ay_lat_g: np.ndarray
+    throttle_pct: np.ndarray
+    brake_pct: np.ndarray
+    steering_deg: np.ndarray
+    gear: np.ndarray
+    rpm: np.ndarray
+    radius: np.ndarray
+    temp_tyre_c: np.ndarray
+    tyre_pressure_bar: np.ndarray
+    fuel_used_l: np.ndarray
 
-    brakes = PneumaticBrake({
-        'wheel_radius_m':       params_dict.get('r_wheel', 0.65),
-        'max_brake_torque_nm':  (
-            params_dict.get('m', 5000)
-            * 9.81
-            * params_dict.get('r_wheel', 0.65)
-            * 1.5
-        ),
-        'chamber_area_cm2': 800,
-    })
+    # Raw (m/s²) versions kept for internal use
+    _a_long_ms2: np.ndarray = field(repr=False, default=None)
+    _a_lat_ms2: np.ndarray = field(repr=False, default=None)
 
-    trans = Transmission({
-        'gear_ratios': params_dict.get(
-            'gear_ratios',
-            [14.0, 10.5, 7.8, 5.9, 4.5, 3.5, 2.7, 2.1, 1.6, 1.25, 1.0, 0.78]
-        ),
-        'final_drive': params_dict.get('final_drive', 5.33),
-        'upshift_rpm': params_dict.get('upshift_rpm', 2500),
-        'downshift_rpm': params_dict.get('downshift_rpm', 1200),
-    })
+    # -----------------------------------------------------------------------
+    # KPI properties
+    # -----------------------------------------------------------------------
 
-    tires = ThermalPacejkaTire({
-        'mu_y':        params_dict.get('mu', 1.1),
-        'pacejka_b_y': params_dict.get('pacejka_B', 10.0),
-        'pacejka_c_y': params_dict.get('pacejka_C', 1.3),
-        'pacejka_d_y': params_dict.get('pacejka_D', 1.1),
-        'pacejka_E':   params_dict.get('pacejka_E', -0.5),
-        'T_initial_C': 65.0,
-        'T_ambient_C': 25.0,
-        'P_cold_bar':  params_dict.get('P_cold_bar', 4.5),
-    })
+    @property
+    def avg_speed_kmh(self) -> float:
+        return float(np.mean(self.v_kmh))
 
-    lf = params_dict.get('lf', 2.1)
-    lr = params_dict.get('lr', 2.3)
+    @property
+    def max_speed_kmh(self) -> float:
+        return float(np.max(self.v_kmh))
 
-    return BicycleVehicle2DOF(
-        mass=params_dict.get('m', 5000.0),
-        wheelbase=lf + lr,
-        a=lf,
-        cg_height=params_dict.get('h_cg', 1.1),
-        izz=params_dict.get('m', 5000.0) * (lf ** 2 + lr ** 2) / 2,
-        engine_sys=engine,
-        brake_sys=brakes,
-        trans_sys=trans,
-        tire_sys=tires,
-        track_width=params_dict.get('track_width', 2.45),
-        k_roll=params_dict.get('k_roll', 415000.0),
-        k_roll_front=params_dict.get('k_roll_front', None),
-        k_roll_rear=params_dict.get('k_roll_rear', None),
-    )
+    @property
+    def peak_lat_g(self) -> float:
+        return float(np.max(np.abs(self.ay_lat_g)))
+
+    @property
+    def peak_brake_g(self) -> float:
+        return float(np.min(self.ax_long_g))
+
+    @property
+    def peak_accel_g(self) -> float:
+        return float(np.max(self.ax_long_g))
+
+    @property
+    def time_wot_pct(self) -> float:
+        """Percentage of lap with throttle >= 95%."""
+        return float(np.mean(self.throttle_pct >= 95.0) * 100.0)
+
+    @property
+    def time_braking_pct(self) -> float:
+        """Percentage of lap with brake > 5%."""
+        return float(np.mean(self.brake_pct > 5.0) * 100.0)
+
+    @property
+    def fuel_total_l(self) -> float:
+        return float(self.fuel_used_l[-1])
+
+    @property
+    def final_tyre_temp_c(self) -> float:
+        return float(self.temp_tyre_c[-1])
+
+    @property
+    def final_tyre_pressure_bar(self) -> float:
+        return float(self.tyre_pressure_bar[-1])
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Export all channels to a tidy DataFrame (MoTeC/Pi Toolbox compatible)."""
+        return pd.DataFrame({
+            "distance_m":     self.distance,
+            "lap_time_s":     self.time,
+            "v_kmh":          self.v_kmh,
+            "ax_long_g":      self.ax_long_g,
+            "ay_lat_g":       self.ay_lat_g,
+            "throttle_pct":   self.throttle_pct,
+            "brake_pct":      self.brake_pct,
+            "steering_deg":   self.steering_deg,
+            "gear":           self.gear,
+            "rpm":            self.rpm,
+            "radius_m":       self.radius,
+            "temp_tyre_c":    self.temp_tyre_c,
+            "tyre_press_bar": self.tyre_pressure_bar,
+            "fuel_used_l":    self.fuel_used_l,
+        })
+
+    def save_csv(self, path: str) -> None:
+        """Save telemetry to CSV. Filename format compatible with existing app."""
+        self.to_dataframe().to_csv(path, index=False)
+        logger.info(f"[OK] Telemetria salva em: {path}")
+
+    def log_kpis(self) -> None:
+        """Log performance KPIs to INFO."""
+        logger.info(
+            f"[RESULT] [{self.mode.name}] Setup='{self.setup_name}' | "
+            f"Lap={self.lap_time:.2f}s | "
+            f"V_avg={self.avg_speed_kmh:.1f} km/h | "
+            f"V_max={self.max_speed_kmh:.1f} km/h | "
+            f"Peak_lat={self.peak_lat_g:.2f}g | "
+            f"WOT={self.time_wot_pct:.1f}% | "
+            f"Braking={self.time_braking_pct:.1f}% | "
+            f"T_tyre={self.final_tyre_temp_c:.1f}\u00b0C | "
+            f"Fuel={self.fuel_total_l:.2f}L"
+        )
 
 
-def run_bicycle_model(params_dict, circuit, config, save_csv=True, out_path=None):
-    """
-    GGV-based forward-backward solver (3-DOF bicycle model).
+# ---------------------------------------------------------------------------
+# Internal helper functions
+# ---------------------------------------------------------------------------
 
-    config keys:
-        coef_aderencia  [-]  override peak friction (default: truck.tires.mu_y)
-        gear_min        [-]  minimum gear clamp
-                             Copa Truck: gear_min=4  |  GT3 / car: gear_min=1
-    """
-    start_time = time.time()
-    truck = build_modular_truck_from_dict(params_dict)
+def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
+    """Convert structured VehicleParams to flat legacy struct for the solver loop."""
+    d = vp.to_solver_dict()
+    p = _LegacyVehicleParams(**{k: v for k, v in d.items()
+                                 if k in _LegacyVehicleParams.__dataclass_fields__})
+    return p
 
-    g = 9.81
-    rho = 1.225
-    mu_aderencia = config.get("coef_aderencia", truck.tires.mu_y)
-    gear_min: int = int(config.get("gear_min", params_dict.get("gear_min", 1)))
 
-    # Acceleration/deceleration cap: GT3 ~15 m/s², Truck ~8 m/s²
-    a_cap = 15.0 if gear_min == 1 else 8.0
-
-    Cx = params_dict.get('Cx', 0.85)
-    A_front = params_dict.get('A_front', 8.7)
-    Cl = params_dict.get('Cl', 0.0)
-
-    x_raw = circuit.centerline_x
-    y_raw = circuit.centerline_y
-    n = len(x_raw)
-
-    window_size = min(51, n // 4)
-    if window_size % 2 == 0:
-        window_size += 1
-    x = savgol_filter(x_raw, window_length=window_size,
-                      polyorder=3) if window_size > 3 else x_raw.copy()
-    y = savgol_filter(y_raw, window_length=window_size,
-                      polyorder=3) if window_size > 3 else y_raw.copy()
+def _compute_track_geometry(circuit) -> tuple:
+    """Compute ds, s, curvature radius arrays from circuit centerline."""
+    x = circuit.centerline_x
+    y = circuit.centerline_y
+    n = len(x)
 
     ds = np.zeros(n)
     ds[1:] = np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2)
@@ -166,287 +261,458 @@ def run_bicycle_model(params_dict, circuit, config, save_csv=True, out_path=None
     ddx = np.gradient(dx)
     ddy = np.gradient(dy)
 
-    # P1: suppress divide-by-zero RuntimeWarning on straight segments
+    # Suppress divide-by-zero RuntimeWarning on straight segments
     with np.errstate(divide='ignore', invalid='ignore'):
         curvature = (dx * ddy - dy * ddx) / (dx ** 2 + dy ** 2 + 1e-9) ** 1.5
         radius = np.where(np.abs(curvature) > 1e-6,
                           1.0 / np.abs(curvature), 1e6)
     radius = np.clip(radius, 10.0, 1e6)
 
-    v_profile = np.zeros(n)
-    a_long = np.zeros(n)
-    a_lat = np.zeros(n)
+    return x, y, n, ds, s, radius
+
+
+def _torque_curve(rpm: float, p: _LegacyVehicleParams) -> float:
+    """Engine torque [N·m] at given RPM. Diesel heavy truck character."""
+    rpm_torque_max = 1300.0
+    if rpm < p.rpm_idle:
+        return 0.0
+    elif rpm <= rpm_torque_max:
+        return p.T_max * (rpm - p.rpm_idle) / (rpm_torque_max - p.rpm_idle)
+    elif rpm <= p.rpm_max:
+        return p.T_max * np.exp(-0.0015 * (rpm - rpm_torque_max) ** 1.2)
+    else:
+        return 0.0
+
+
+def _torque_curve_interp(
+    rpm: float,
+    torque_curve_rpm: list,
+    torque_curve_nm: list,
+    rpm_max: float,
+) -> float:
+    """Interpolated torque from VehicleParams engine map."""
+    if not torque_curve_rpm:
+        return 0.0
+    rpm_c = float(np.clip(rpm, torque_curve_rpm[0], torque_curve_rpm[-1]))
+    return float(np.interp(rpm_c, torque_curve_rpm, torque_curve_nm))
+
+
+def _select_gear_optimal(v: float, p: _LegacyVehicleParams) -> int:
+    """Select gear that maximises drive force within RPM range."""
+    rpm_min_opt = p.rpm_idle * 1.5
+    rpm_max_opt = p.rpm_max * 0.90
+    best_gear, best_force = 1, -1.0
+    for gear in range(1, p.n_gears + 1):
+        ratio_total = p.gear_ratios[gear - 1] * p.final_drive
+        rpm = (v / max(p.r_wheel, 0.01)) * ratio_total * 60.0 / (2 * np.pi)
+        if rpm > p.rpm_max:
+            continue
+        rpm = max(rpm, p.rpm_idle)
+        T = _torque_curve(rpm, p)
+        F = T * ratio_total / p.r_wheel
+        if rpm_min_opt <= rpm <= rpm_max_opt:
+            if F > best_force:
+                best_force = F
+                best_gear = gear
+        elif best_force < 0:
+            best_gear = gear
+    return best_gear
+
+
+def _get_rpm(v: float, gear: int, p: _LegacyVehicleParams) -> float:
+    """Engine RPM at speed v in given gear."""
+    if gear < 1 or gear > p.n_gears:
+        return p.rpm_idle
+    ratio_total = p.gear_ratios[gear - 1] * p.final_drive
+    rpm = (v / max(p.r_wheel, 0.01)) * ratio_total * 60.0 / (2 * np.pi)
+    return float(np.clip(rpm, p.rpm_idle, p.rpm_max))
+
+
+def _driver_inputs_from_accel(
+    a_long: np.ndarray,
+    v_kmh: np.ndarray,
+    v_max_kmh: float = 300.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Derive throttle_pct and brake_pct from longitudinal acceleration."""
+    a_pos = np.clip(a_long, 0, None)
+    a_neg = np.clip(-a_long, 0, None)
+    a_max_accel = max(float(np.max(a_pos)), 1e-6)
+    a_max_brake  = max(float(np.max(a_neg)), 1e-6)
+    throttle = np.clip((a_pos / a_max_accel) * 100.0, 0.0, 100.0)
+    brake    = np.clip((a_neg / a_max_brake) * 100.0, 0.0, 100.0)
+    return throttle, brake
+
+
+def _steering_from_radius(
+    radius: np.ndarray,
+    v_ms: np.ndarray,
+    wheelbase: float,
+    steering_ratio: float = 15.0,
+) -> np.ndarray:
+    """Estimate steering wheel angle from Ackermann geometry."""
+    delta_rad = wheelbase / np.maximum(radius, 1.0)
+    delta_deg = np.degrees(delta_rad) * steering_ratio
+    return delta_deg
+
+
+# ---------------------------------------------------------------------------
+# Core GGV solver
+# ---------------------------------------------------------------------------
+
+def _run_ggv_solver(
+    p, x, y, n, ds, s, radius, mu, v0,
+    fuel_per_km, temp_ini, p_tyre_cold,
+    torque_map_rpm, torque_map_nm,
+) -> dict:
+    """GGV forward + backward pass solver."""
+    g = 9.81
+    rho = 1.225
+
+    v_profile    = np.zeros(n)
+    a_long       = np.zeros(n)
+    a_lat        = np.zeros(n)
     gear_profile = np.ones(n, dtype=int)
-    rpm_profile = np.zeros(n)
-    consumo_acum = np.zeros(n)
-    roll_angle_profile = np.zeros(n)
-    fz_outer_profile = np.zeros(n)
-    slip_angle_est = np.zeros(n)
-    temp_pneu_profile = np.zeros(n)
-    pressao_pneu_profile = np.zeros(n)
-    grip_mult_profile = np.zeros(n)
+    rpm_profile  = np.zeros(n)
+    temp_tyre    = np.ones(n) * temp_ini
+    fuel_acum    = np.zeros(n)
 
-    lf = truck.a
-    lr = truck.wheelbase - lf
-    L = truck.wheelbase
-    h = truck.cg_height
-    tw = truck.track_width
-
-    # --- Load-sensitivity model ---
-    # ARBs redistribute the total lateral load transfer between front and rear.
-    # The axle receiving more load transfer loses more grip (load sensitivity).
-    # Total ΔFz_lat is fixed by physics: m * a_lat * h / tw
-    # Front share: k_roll_front / k_roll_total
-    # Rear share:  k_roll_rear  / k_roll_total
-    # The critical (most loaded) axle limits cornering speed.
-    k_ls = 0.20   # load-sensitivity coefficient (0 = no effect, 0.25 = strong)
-    k_roll_total = truck.k_roll_front + truck.k_roll_rear
-    # Fraction of total load transfer borne by each axle (via ARB stiffness ratio)
-    arb_frac_front = truck.k_roll_front / max(k_roll_total, 1.0)
-    arb_frac_rear = truck.k_roll_rear / max(k_roll_total, 1.0)
-    # The critical axle is the one with the highest fraction → loses more grip
-    arb_frac_max = max(arb_frac_front, arb_frac_rear)
-    Fz_static = truck.mass * g / 2.0  # per-axle static load
-
-    # P2: vectorised v_lat_max with load-transfer correction
-    # First pass: no correction (baseline)
-    denom_vec = (truck.mass / radius) - \
-        (0.5 * rho * Cl * A_front * mu_aderencia)
-    v_lat_max_profile = np.where(
-        denom_vec > 0,
-        np.sqrt(np.maximum(0.0, (mu_aderencia * truck.mass * g) /
-                np.maximum(denom_vec, 1e-9))),
-        250.0 / 3.6,
-    )
-    # Second pass: apply load-sensitivity correction using first-pass v
-    a_lat_est = v_lat_max_profile**2 / radius
-    # ΔFz on the critical axle as fraction of static per-axle load
-    delta_fz_frac = np.clip(
-        truck.mass * a_lat_est * h * arb_frac_max / (tw * Fz_static), 0.0, 0.95
-    )
-    mu_eff = mu_aderencia * (1.0 - k_ls * delta_fz_frac)
-    denom_vec2 = (truck.mass / radius) - (0.5 * rho * Cl * A_front * mu_eff)
-    v_lat_max_profile = np.where(
-        denom_vec2 > 0,
-        np.sqrt(np.maximum(0.0, (mu_eff * truck.mass * g) /
-                np.maximum(denom_vec2, 1e-9))),
-        250.0 / 3.6,
-    )
-
-    num_gears = len(truck.transmission.gear_ratios)
-    highest_gear_ratio = truck.transmission.get_total_ratio(num_gears)
-    absolute_v_rpm_limit = (
-        (truck.engine.redline_rpm * 2 * np.pi * truck.brakes.wheel_radius)
-        / (60 * highest_gear_ratio)
-    )
-
-    # --- FORWARD PASS ---
-    v_profile[0] = min(20.0, v_lat_max_profile[0])
+    v_profile[0] = v0
+    gear_profile[0] = _select_gear_optimal(v0, p) if v0 > 0 else 1
 
     for i in range(1, n):
         v_prev = v_profile[i - 1]
-        a_prev = a_long[i - 2] if i > 1 else 0.0
+        gear   = _select_gear_optimal(v_prev, p)
+        gear_profile[i] = gear
 
-        gear_current = truck.transmission.select_optimal_gear(
-            v_prev, truck.brakes.wheel_radius)
-        if gear_current < gear_min:
-            gear_current = gear_min
-        gear_profile[i] = gear_current
-
-        ratio_total = truck.transmission.get_total_ratio(gear_current)
-        rpm = (v_prev / truck.brakes.wheel_radius) * \
-            ratio_total * 60 / (2 * np.pi)
-        rpm = np.clip(rpm, truck.engine.idle_rpm, truck.engine.redline_rpm)
+        rpm = _get_rpm(v_prev, gear, p)
         rpm_profile[i - 1] = rpm
 
-        truck.vx = max(v_prev, 0.1)
-        derivadas = truck.calculate_derivatives(
-            throttle=1.0, brake_pedal=0.0, steering_angle=0.0, current_rpm=rpm
-        )
-        F_traction_engine = derivadas['Fx_total']
+        if torque_map_rpm:
+            T_engine = _torque_curve_interp(rpm, torque_map_rpm, torque_map_nm, p.rpm_max)
+        else:
+            T_engine = _torque_curve(rpm, p)
 
-        F_drag = 0.5 * rho * Cx * A_front * v_prev ** 2
-        F_downforce = 0.5 * rho * Cl * A_front * v_prev ** 2
+        ratio_total = p.gear_ratios[gear - 1] * p.final_drive
+        F_traction  = T_engine * ratio_total / p.r_wheel
+        F_drag      = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
+        F_downforce = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
+        F_normal    = p.m * g + F_downforce
 
-        Fz_rear_static = truck.mass * g * (lf / L)
-        Fz_rear_dynamic = Fz_rear_static + truck.mass * \
-            a_prev * (h / L) + F_downforce * 0.5
-        F_lateral = truck.mass * (v_prev ** 2 / radius[i])
-        # Load-sensitivity correction for forward pass (ARB-dependent)
-        dfz_frac_fwd = min(abs(F_lateral) * h *
-                           arb_frac_max / (tw * Fz_static * g), 0.95)
-        mu_eff_fwd = mu_aderencia * (1.0 - k_ls * dfz_frac_fwd)
-        max_rear_grip = mu_eff_fwd * Fz_rear_dynamic
+        v_lat_max  = np.sqrt(mu * g * radius[i])
+        a_lat_cur  = v_prev ** 2 / max(radius[i], 1.0)
+        F_lat_used = p.m * a_lat_cur
+        F_trac_grip = np.sqrt(max((mu * F_normal) ** 2 - F_lat_used ** 2, 0.0))
+        F_traction  = min(F_traction, F_trac_grip)
 
-        available_long_grip = (
-            np.sqrt(max(0.0, max_rear_grip ** 2 - (F_lateral * 0.5) ** 2))
-            if max_rear_grip > F_lateral * 0.5 else 0.0
-        )
-
-        a = (min(F_traction_engine, available_long_grip) - F_drag) / truck.mass
-        a = min(a, a_cap)
+        a = (F_traction - F_drag) / p.m
         a_long[i - 1] = a
 
         if ds[i] > 0:
-            v_possible = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
-            v_profile[i] = min(
-                v_possible, v_lat_max_profile[i], absolute_v_rpm_limit)
+            v_possible   = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
+            v_profile[i] = min(v_possible, v_lat_max)
         else:
             v_profile[i] = v_prev
 
-    # --- BACKWARD PASS ---
-    v_profile[-1] = min(v_profile[-1], v_lat_max_profile[-1])
+        a_total = np.sqrt(a ** 2 + (v_prev ** 2 / max(radius[i], 1.0)) ** 2)
+        temp_tyre[i] = temp_tyre[i - 1] + 0.05 * a_total
+
     for i in reversed(range(n - 1)):
-        v_next = v_profile[i + 1]
-        F_lateral_next = truck.mass * (v_next ** 2 / radius[i + 1])
-        F_downforce_next = 0.5 * rho * Cl * A_front * v_next ** 2
-
-        a_decel_est = mu_aderencia * g
-        Delta_Fz_brake = truck.mass * a_decel_est * (h / L)
-
-        Fz_front_dyn = (truck.mass * g * (lr / L)) + \
-            Delta_Fz_brake + F_downforce_next * 0.5
-        Fz_rear_dyn = max(0.0, (truck.mass * g * (lf / L)) -
-                          Delta_Fz_brake + F_downforce_next * 0.5)
-
-        max_total_grip = mu_aderencia * (Fz_front_dyn + Fz_rear_dyn)
-        # Load-sensitivity correction for backward pass (ARB-dependent)
-        dfz_frac_bwd = min(abs(F_lateral_next) * h * arb_frac_max /
-                           (tw * Fz_static * g), 0.95)
-        mu_eff_bwd = mu_aderencia * (1.0 - k_ls * dfz_frac_bwd)
-        max_total_grip = mu_eff_bwd * (Fz_front_dyn + Fz_rear_dyn)
-        available_brake_grip = (
-            np.sqrt(max(0.0, max_total_grip ** 2 - F_lateral_next ** 2))
-            if max_total_grip > F_lateral_next else 0.0
+        v_next      = v_profile[i + 1]
+        a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
+        a_decel_max = min(
+            np.sqrt(max(0.0, (mu * g) ** 2 - a_lat_next ** 2)),
+            p.max_decel
         )
-
-        a_decel_brakes = min(
-            available_brake_grip / truck.mass,
-            truck.brakes.get_max_deceleration(
-                v_next, Fz_front_dyn, Fz_rear_dyn)
-        )
-        a_drag_next = (0.5 * rho * Cx * A_front * v_next ** 2) / truck.mass
-        a_decel_effective = min(a_decel_brakes + a_drag_next, a_cap)
-
         if ds[i + 1] > 0:
-            v_profile[i] = min(
-                v_profile[i],
-                np.sqrt(v_next ** 2 + 2 * a_decel_effective * ds[i + 1])
-            )
+            v_brake_limit = np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1])
+            v_profile[i]  = min(v_profile[i], v_brake_limit)
 
-    # --- TIME + CONSUMO + THERMAL PASS ---
     time_profile = np.zeros(n)
-    time_acc = 0.0
 
     for i in range(n):
-        a_lat[i] = v_profile[i] ** 2 / radius[i]
-
-        roll_data = truck.calculate_roll_transfer(a_lat[i])
-        sinal_curva = np.sign(curvature[i]) if curvature[i] != 0 else 1.0
-        roll_angle_profile[i] = roll_data['roll_angle_deg'] * sinal_curva
-
-        Fz_roda = (truck.mass * g) / 4.0
-        fz_outer_profile[i] = Fz_roda + roll_data['delta_fz_lat']
-
-        Fy_front = (truck.mass * a_lat[i] * lr) / L
-
-        if hasattr(truck.tires, 'C_y'):
-            cf_total = truck.tires.B_y * truck.tires.C_y * truck.tires.D_y * Fz_roda
-        elif hasattr(truck.tires, 'cornering_stiffness'):
-            cf_total = truck.tires.cornering_stiffness
-        else:
-            cf_total = 100000.0
-
-        slip_angle_rad = Fy_front / (cf_total + 1.0)
-        slip_angle_est[i] = np.degrees(slip_angle_rad) * sinal_curva
-
-        if i < n - 1:
-            a_long[i] = (
-                (v_profile[i + 1] ** 2 - v_profile[i] ** 2)
-                / (2 * ds[i + 1] if ds[i + 1] > 0 else 1)
-            )
-
+        a_lat[i] = v_profile[i] ** 2 / max(radius[i], 1.0)
         if i > 0 and v_profile[i] > 0:
             dt = ds[i] / v_profile[i]
-            time_acc += dt
-            time_profile[i] = time_acc
+            time_profile[i] = time_profile[i - 1] + dt
+            fuel_acum[i] = fuel_acum[i - 1] + (fuel_per_km / 1000.0) * ds[i]
 
-            truck.tires.update_thermal_state(
-                slip_angle_rad, Fy_front, v_profile[i], dt)
-            temp_pneu_profile[i] = truck.tires.T_core
-            pressao_pneu_profile[i] = truck.tires.current_pressure
-            grip_mult_profile[i] = truck.tires.current_grip_mult
+    p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
-            F_drag_inst = 0.5 * rho * Cx * A_front * v_profile[i] ** 2
-            potencia_kw = max(0.0, truck.mass *
-                              a_long[i] + F_drag_inst) * v_profile[i] / 1000
-            if potencia_kw > 0:
-                consumo_acum[i] = consumo_acum[i - 1] + \
-                    truck.engine.get_fuel_consumption(potencia_kw, dt)
-            else:
-                consumo_acum[i] = consumo_acum[i - 1]
-        elif i == 0:
-            temp_pneu_profile[0] = truck.tires.T_core
-            pressao_pneu_profile[0] = truck.tires.current_pressure
-            grip_mult_profile[0] = truck.tires.current_grip_mult
-
-    lap_time = time_profile[-1]
-    elapsed = time.time() - start_time
-    logger.info(
-        f"GGV Solver Concluído em {elapsed:.4f}s. "
-        f"Tempo de volta: {lap_time:.2f}s | T_Pneu final: {temp_pneu_profile[-1]:.1f}C"
-    )
-
-    # --- Driver input estimates ---
-    throttle_pct = np.clip(a_long / (mu_aderencia * g), 0.0, 1.0) * 100.0
-    brake_pct = np.clip(-a_long / (mu_aderencia * g), 0.0, 1.0) * 100.0
-    # Ackermann steering angle: delta = L / R  (low-speed kinematic approx.)
-    steering_deg = np.degrees(L / radius) * np.sign(curvature)
-
-    result = {
-        "lap_time":           lap_time,
-        "distance":           s,
-        "v_profile":          v_profile,
-        "a_long":             a_long,
-        "a_lat":              a_lat,
-        "gear":               gear_profile,
-        "rpm":                rpm_profile,
-        "radius":             radius,
-        "roll_angle_profile": roll_angle_profile,
-        "time":               time_profile,
-        "consumo":            consumo_acum,
-        "temp_pneu":          temp_pneu_profile,
-        "pressao_pneu":       pressao_pneu_profile,
-        "grip_mult":          grip_mult_profile,
-        "front_slip_angle_deg": slip_angle_est,
-        "throttle_pct":       throttle_pct,
-        "brake_pct":          brake_pct,
-        "steering_deg":       steering_deg,
-        "compute_time_s":     elapsed,
+    return {
+        "time_profile": time_profile,
+        "v_profile":    v_profile,
+        "a_long":       a_long,
+        "a_lat":        a_lat,
+        "gear_profile": gear_profile,
+        "rpm_profile":  rpm_profile,
+        "temp_tyre":    temp_tyre,
+        "tyre_pressure":p_tyre_hot,
+        "fuel_acum":    fuel_acum,
     }
 
+
+# ---------------------------------------------------------------------------
+# Standing start solver
+# ---------------------------------------------------------------------------
+
+def _run_standing_start(
+    p, x, y, n, ds, s, radius, mu,
+    launch_rpm, wheelspin_limit,
+    fuel_per_km, temp_ini, p_tyre_cold,
+    torque_map_rpm, torque_map_nm,
+) -> dict:
+    """Standing start: clutch ramp + GGV forward/backward."""
+    g = 9.81
+    rho = 1.225
+    CLUTCH_RAMP_DIST = 30.0
+
+    v_profile    = np.zeros(n)
+    a_long       = np.zeros(n)
+    a_lat        = np.zeros(n)
+    gear_profile = np.ones(n, dtype=int)
+    rpm_profile  = np.zeros(n)
+    temp_tyre    = np.ones(n) * temp_ini
+    fuel_acum    = np.zeros(n)
+
+    v_profile[0]    = 0.0
+    gear_profile[0] = 1
+    rpm_profile[0]  = launch_rpm
+    launch_dist_accum = 0.0
+
+    for i in range(1, n):
+        v_prev  = v_profile[i - 1]
+        gear    = _select_gear_optimal(max(v_prev, 0.5), p)
+        gear_profile[i] = gear
+
+        rpm = max(_get_rpm(v_prev, gear, p), launch_rpm if v_prev < 5.0 else 0)
+        rpm_profile[i - 1] = rpm
+
+        if torque_map_rpm:
+            T_engine = _torque_curve_interp(rpm, torque_map_rpm, torque_map_nm, p.rpm_max)
+        else:
+            T_engine = _torque_curve(rpm, p)
+
+        ratio_total  = p.gear_ratios[gear - 1] * p.final_drive
+        F_traction_e = T_engine * ratio_total / p.r_wheel
+        F_drag       = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
+        F_downforce  = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
+        F_normal     = p.m * g + F_downforce
+
+        if launch_dist_accum < CLUTCH_RAMP_DIST:
+            clutch_factor = launch_dist_accum / CLUTCH_RAMP_DIST
+            slip_limit    = wheelspin_limit * (1.0 - clutch_factor) + 0.05
+            F_traction    = min(F_traction_e, mu * F_normal * (1.0 - slip_limit))
+        else:
+            a_lat_cur   = v_prev ** 2 / max(radius[i], 1.0)
+            F_lat_used  = p.m * a_lat_cur
+            F_trac_grip = np.sqrt(max((mu * F_normal) ** 2 - F_lat_used ** 2, 0.0))
+            F_traction  = min(F_traction_e, F_trac_grip)
+
+        launch_dist_accum += ds[i]
+        a = (F_traction - F_drag) / p.m
+        a_long[i - 1] = a
+
+        v_lat_max = np.sqrt(mu * g * radius[i])
+        if ds[i] > 0:
+            v_possible   = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
+            v_profile[i] = min(v_possible, v_lat_max)
+        else:
+            v_profile[i] = v_prev
+
+        a_total = np.sqrt(a ** 2 + (v_prev ** 2 / max(radius[i], 1.0)) ** 2)
+        temp_tyre[i] = temp_tyre[i - 1] + 0.05 * a_total
+
+    for i in reversed(range(n - 1)):
+        v_next      = v_profile[i + 1]
+        a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
+        a_decel_max = min(np.sqrt(max(0.0, (mu * g) ** 2 - a_lat_next ** 2)), p.max_decel)
+        if ds[i + 1] > 0:
+            v_profile[i] = min(v_profile[i], np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1]))
+
+    time_profile = np.zeros(n)
+    for i in range(n):
+        a_lat[i] = v_profile[i] ** 2 / max(radius[i], 1.0)
+        if i > 0 and v_profile[i] > 0:
+            dt = ds[i] / v_profile[i]
+            time_profile[i] = time_profile[i - 1] + dt
+            fuel_acum[i] = fuel_acum[i - 1] + (fuel_per_km / 1000.0) * ds[i]
+
+    p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
+
+    return {
+        "time_profile": time_profile,
+        "v_profile":    v_profile,
+        "a_long":       a_long,
+        "a_lat":        a_lat,
+        "gear_profile": gear_profile,
+        "rpm_profile":  rpm_profile,
+        "temp_tyre":    temp_tyre,
+        "tyre_pressure":p_tyre_hot,
+        "fuel_acum":    fuel_acum,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Public entry point: run_simulation
+# ---------------------------------------------------------------------------
+
+def run_simulation(
+    config: SimulationConfig,
+    vehicle_params: VehicleParams,
+    circuit,
+    save_csv: bool = True,
+    out_path: Optional[str] = None,
+) -> SimulationResult:
+    """
+    Main simulation entry point.
+
+    Applies VehicleSetup to VehicleParams, selects solver based on
+    SimulationMode, and returns a SimulationResult with all telemetry
+    channels and KPIs.
+    """
+    t0 = _time.perf_counter()
+    logger.info(f"[SIM] {config.describe()}")
+
+    params_eff = apply_setup_to_params(vehicle_params, config.setup)
+    p = _build_flat_params(params_eff)
+
+    torque_map_rpm = params_eff.engine.torque_curve_rpm
+    torque_map_nm  = params_eff.engine.torque_curve_nm
+
+    x, y, n, ds, s, radius = _compute_track_geometry(circuit)
+
+    mu          = params_eff.tire.friction_coefficient
+    fuel_per_km = config.setup.__dict__.get("fuel_per_km", 43.0)
+    temp_ini    = config.track_temperature_c + 5.0
+    p_tyre_cold = config.setup.tyre_pressure_avg_front
+    wheelbase   = params_eff.mass_geometry.wheelbase
+
+    if config.is_qualifying():
+        v0 = 10.0
+    elif config.is_flying_lap():
+        v0 = config.v_entry_kmh / 3.6
+    else:
+        v0 = 0.0
+
+    if config.is_standing_start():
+        raw = _run_standing_start(
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
+            mu=mu, launch_rpm=config.launch_rpm,
+            wheelspin_limit=config.wheelspin_limit_slip,
+            fuel_per_km=fuel_per_km, temp_ini=temp_ini,
+            p_tyre_cold=p_tyre_cold,
+            torque_map_rpm=torque_map_rpm,
+            torque_map_nm=torque_map_nm,
+        )
+    else:
+        raw = _run_ggv_solver(
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
+            mu=mu, v0=v0, fuel_per_km=fuel_per_km,
+            temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
+            torque_map_rpm=torque_map_rpm,
+            torque_map_nm=torque_map_nm,
+        )
+
+    lap_time = raw["time_profile"][-1]
+    v_ms     = raw["v_profile"]
+    a_long   = raw["a_long"]
+
+    throttle, brake = _driver_inputs_from_accel(a_long, v_ms * 3.6)
+    steering = _steering_from_radius(
+        radius, v_ms, wheelbase=wheelbase, steering_ratio=15.0
+    )
+
+    result = SimulationResult(
+        lap_time          = lap_time,
+        mode              = config.mode,
+        setup_name        = config.setup.setup_name,
+        distance          = s,
+        time              = raw["time_profile"],
+        v_kmh             = v_ms * 3.6,
+        ax_long_g         = a_long / 9.81,
+        ay_lat_g          = raw["a_lat"] / 9.81,
+        throttle_pct      = throttle,
+        brake_pct         = brake,
+        steering_deg      = steering,
+        gear              = raw["gear_profile"],
+        rpm               = raw["rpm_profile"],
+        radius            = radius,
+        temp_tyre_c       = raw["temp_tyre"],
+        tyre_pressure_bar = raw["tyre_pressure"],
+        fuel_used_l       = raw["fuel_acum"],
+        _a_long_ms2       = a_long,
+        _a_lat_ms2        = raw["a_lat"],
+    )
+
+    elapsed = _time.perf_counter() - t0
+    logger.info(
+        f"[PERFORMANCE] GGV Solver Concluído em {elapsed:.4f}s. "
+        f"Tempo de volta: {lap_time:.2f}s | "
+        f"T_Pneu final: {result.final_tyre_temp_c:.1f}C"
+    )
+    result.log_kpis()
+
     if save_csv and out_path:
-        g_val = g
-        df = pd.DataFrame({
-            "Distance":             s,
-            "Time":                 time_profile,
-            "Speed":                v_profile * 3.6,
-            "Engine_RPM":           rpm_profile,
-            "Gear":                 gear_profile,
-            "G_Long":               a_long / g_val,
-            "G_Lat":                a_lat / g_val,
-            "Throttle_Pos":         result['throttle_pct'],
-            "Brake_Press":          result['brake_pct'],
-            "Steering_Angle_deg":   result['steering_deg'],
-            "Roll_Angle_deg":       roll_angle_profile,
-            "Fz_Outer_Wheel_N":     fz_outer_profile,
-            "Front_Slip_Angle_deg": slip_angle_est,
-            "Fuel_Cons_Accum_L":    consumo_acum,
-            "Tyre_Temp_C":          temp_pneu_profile,
-            "Tyre_Press_bar":       pressao_pneu_profile,
-            "Tyre_Grip_Mult":       grip_mult_profile,
-            "Corner_Radius_m":      radius,
-        })
-        df.to_csv(out_path, index=False)
+        result.save_csv(out_path)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Legacy entry point
+# ---------------------------------------------------------------------------
+
+def run_bicycle_model(
+    params_dict: dict,
+    circuit,
+    config: dict,
+    save_csv: bool = True,
+    out_path: Optional[str] = None,
+) -> dict:
+    """
+    Legacy entry point — preserved for backwards compatibility with Streamlit app.
+
+    Wraps run_simulation() converting the flat params_dict and config dict
+    into structured objects. Returns the legacy dict format unchanged.
+    """
+    from ..vehicle.parameters import VehicleParams as StructuredVehicleParams
+    from .simulation_modes import SimulationConfig, SimulationMode
+    from ..vehicle.setup import get_default_setup
+
+    vp = StructuredVehicleParams.from_solver_dict(params_dict)
+
+    mu_override = config.get("coef_aderencia")
+    if mu_override is not None:
+        vp.tire.friction_coefficient = float(mu_override)
+
+    sim_config = SimulationConfig(
+        mode=SimulationMode.QUALIFYING,
+        setup=get_default_setup(),
+        track_temperature_c=config.get("track_temp", 35.0),
+        tyre_compound="slick_dry",
+        export_driver_inputs=True,
+    )
+    temp_pneu_ini = config.get("temp_pneu_ini", 65.0)
+    sim_config.track_temperature_c = temp_pneu_ini - 5.0
+
+    result = run_simulation(
+        config=sim_config,
+        vehicle_params=vp,
+        circuit=circuit,
+        save_csv=save_csv,
+        out_path=out_path,
+    )
+
+    return {
+        "lap_time":  result.lap_time,
+        "distance":  result.distance,
+        "v_profile": result.v_kmh / 3.6,
+        "a_long":    result._a_long_ms2,
+        "a_lat":     result._a_lat_ms2,
+        "gear":      result.gear,
+        "rpm":       result.rpm,
+        "radius":    result.radius,
+        "time":      result.time,
+        "temp_pneu": result.temp_tyre_c,
+        "consumo":   result.fuel_used_l,
+    }

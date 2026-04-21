@@ -1,18 +1,8 @@
-# LapTimeSimulator_CopaTruck - Dependências do Projeto
-# Priorizando versões atualizadas para ambiente de simulação e UI
-
-# Core Computacional e Científico
-numpy>=1.24.3
-pandas>=2.0.3
-scipy>=1.11.1
-
-# Persistência e Dados
-h5py>=3.9.0
-
-# Interface e Visualização
-streamlit>=1.28.0
-matplotlib>=3.7.1
-plotly>=5.15.0
-
-# Web e APIs
-requests>=2.31.0
+numpy
+pandas
+scipy
+matplotlib
+plotly
+streamlit
+h5py
+requests

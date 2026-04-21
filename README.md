@@ -1,49 +1,141 @@
-# LapTimeSimulator_CopaTruck 🏁🚛
+# LapTimeSimulator — Copa Truck / Carrera Cup
 
-Simulador de Tempo de Volta (Lap Time Simulator) desenvolvido para veículos de competição do tipo **Copa Truck**, com foco em análise de desempenho dinâmico em ambientes virtuais controlados.
+Quasi-steady-state lap time simulator for motorsport vehicles. Developed by SARU Dynamics.
 
-*Projeto vinculado ao Mestrado em Engenharia Automotiva (UnB) - Foco em Dinâmica Veicular e Simulação Computacional.*
+Supports Copa Truck (diesel, pneumatic brakes) and Porsche Carrera Cup Brasil fleet (GT3 991.1, 991.2, 992.1), with a modular architecture designed for multi-vehicle comparison, setup optimization, and real telemetry validation.
 
-## 🛠️ Arquitetura e Física do Modelo
-O simulador utiliza uma abordagem **Quasi-Steady-State (QSS)** baseada na integração Forward-Backward e no modelo de **Bicicleta (2-DOF)**, expandido com cálculos dinâmicos avançados:
+---
 
-* **Diagrama GGV Dinâmico Acoplado**: Cálculo de limites de aderência (Friction Circle) considerando *Downforce* e Arrasto Aerodinâmico atuando iterativamente na Força Normal ($F_z$).
-* **Transferência de Carga Longitudinal**: Modulação dinâmica de *Pitch* (*Squat* em aceleração e *Dive* em frenagem) alterando a aderência disponível nos eixos traseiro e dianteiro.
-* **Powertrain Modular**: Modelagem realista de Curvas de Torque para Motor Diesel 12L, relações de transmissão limitadas a parâmetros de corrida (rolling start/4ª marcha), e mapa de consumo de combustível termodinâmico.
-* **Frenagem Pneumática**: Limitadores mecânicos baseados em câmaras de ar reais e distribuição de freio (Brake Balance 60/40).
-* **Tratamento de Trajetória**: Suavização de malha via filtro *Savitzky-Golay* para mitigação de picos derivativos em pistas geradas por dados de GPS/OSM reais.
+## Architecture
 
-## 🚀 Instalação e Execução
-
-### 1. Clonar o repositório
-```powershell
-git clone https://github.com/vitormtt/LapTimeSimulator_CopaTruck.git
-cd LapTimeSimulator_CopaTruck
+```
+src/
+├── simulation/
+│   ├── lap_time_solver.py      ← GGV forward-backward solver; run_simulation() + run_bicycle_model()
+│   ├── simulation_modes.py     ← SimulationMode enum + SimulationConfig dataclass
+│   ├── driver_model.py         ← DriverInputs dataclass; throttle/brake/steering derivation
+│   ├── telemetry.py            ← telemetry channel definitions
+│   └── validation.py           ← simulation vs. real telemetry comparator (Pi Toolbox / MoTeC)
+├── vehicle/
+│   ├── parameters.py           ← VehicleParams + sub-dataclasses (SSoT)
+│   ├── setup.py                ← VehicleSetup; apply_setup(); ARB + wing + tyre pressure model
+│   ├── fleet/                  ← porsche_gt3_991_1, 991_2, 992_1 presets
+│   ├── engine.py               ← ICEEngine; torque curve interpolation
+│   ├── transmission.py         ← Transmission; gear selection
+│   ├── tires.py                ← ThermalPacejkaTire
+│   ├── brakes.py               ← PneumaticBrake
+│   └── vehicle_model.py        ← BicycleVehicle2DOF; composed vehicle object
+├── tracks/
+│   ├── hdf5.py                 ← CircuitHDF5Reader / Writer
+│   ├── circuit.py              ← CircuitData dataclass
+│   ├── generate_br_tracks.py   ← build_interlagos_real() from GPS waypoints
+│   └── osm.py / tumftm.py      ← OSM and TUM FTM track loaders
+├── optimization/
+│   └── optimization.py         ← speed-profile optimizer (scipy); setup sweep
+└── visualization/
+    ├── interface.py             ← Streamlit dashboard
+    ├── kpi_dashboard.py         ← KPI tables and lap-time comparison charts
+    └── track_plotter.py         ← speed map and track overlay plots
 ```
 
-### 2. Sincronizar as Dependências
-O projeto conta com um ecossistema padronizado de Data Science e UI. Para instalar ou atualizar todas as bibliotecas necessárias, execute:
-```powershell
-pip install --upgrade -r requirements.txt
-```
+### Simulation model
 
-### 3. Pistas (Opcional)
-Na ausência de malhas GPS/OSM brutas mapeadas na sua máquina, você pode gerar pistas sintéticas dimensionadas para validar o motor do simulador:
-```powershell
+**Bicycle model 2-DOF** with GGV forward-backward solver:
+
+1. **Forward pass** — maximum acceleration limited by traction (engine + grip) and lateral speed limit at each corner.
+2. **Backward pass** — braking to not exceed corner-entry speed.
+3. **Time/thermal pass** — cumulative lap time, tyre temperature, fuel consumption.
+
+Physics extensions:
+- Longitudinal load transfer (pitch: squat on acceleration, dive on braking)
+- Aerodynamic downforce and drag updating normal load and grip
+- ARB load-sensitivity model: lateral load transfer distributed front/rear by ARB stiffness ratio; grip penalty proportional to per-axle overload
+- Diesel torque curve (interpolated map or parametric) / GT3 torque curve
+- Gear selection maximising drive force within RPM band
+- Tyre thermal model (bulk temperature and hot pressure estimate)
+- Fuel consumption from power demand
+
+### Simulation modes
+
+| Mode | Description |
+|------|-------------|
+| `QUALIFYING` | Single lap from equilibrium speed (default) |
+| `FLYING_LAP` | Lap from prescribed entry speed (`v_entry_kmh`) |
+| `STANDING_START` | Lap from rest with clutch-ramp wheelspin model |
+| `ROLLING_START` | Alias for `FLYING_LAP` (backward compatibility) |
+
+### Vehicle setup (`VehicleSetup`)
+
+Discrete + continuous parameters applied to a base `VehicleParams` before solving:
+
+| Parameter | Range | Effect |
+|-----------|-------|--------|
+| `arb_front` | 1–7 | Front ARB stiffness [50–420 kNm/rad] |
+| `arb_rear` | 1–7 | Rear ARB stiffness [40–340 kNm/rad] |
+| `wing_position` | 1–9 | ΔCd and ΔCl_rear |
+| `tyre_pressure` | 1.4–2.4 bar | Scales cornering stiffness and friction coefficient |
+| `brake_bias` | −2.0–0.0 | Front brake balance offset |
+
+---
+
+## Fleet
+
+| ID | Vehicle | Power |
+|----|---------|-------|
+| `porsche_991_1` | Porsche 911 GT3 Cup (991 Phase 1) | 338 kW |
+| `porsche_991_2` | Porsche 911 GT3 Cup (991 Phase 2) | 338 kW |
+| `porsche_992_1` | Porsche 911 GT3 Cup (992 Phase 1) | 373 kW |
+
+Copa Truck default: `copa_truck_2dof_default()` — Mercedes-Benz Actros 600 kW, 12-speed automatic, `gear_min=4`.
+
+---
+
+## Quick start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Generate Interlagos track from GPS waypoints (first run only)
 python src/tracks/generate_br_tracks.py
-```
 
-### 4. Iniciar a Interface
-Para abrir o Dashboard interativo (Streamlit):
-```powershell
+# Launch the Streamlit dashboard
 streamlit run src/visualization/interface.py
 ```
 
-## 📚 Referências Acadêmicas Base
-- **Casanova, D. (2000)** - *On minimum time vehicle manoeuvring: The theoretical optimal lap.* (Fundamentação algorítmica para a solução QSS Forward-Backward).
-- **Gillespie, T.D. (1992)** - *Fundamentals of Vehicle Dynamics.* (Equações de movimento, taxas de Yaw e transferência de carga elástica).
-- **Pacejka, H.B. (2012)** - *Tire and Vehicle Dynamics.* (Friction Circle e "Magic Formula" simplificada para estresse de banda de rodagem).
-- **Savaresi, S. M. et al. (2010)** - *Automotive Semi-Active Suspensions.* (Embasamento da simplificação em 2-DOF macroscópica para o tempo de volta contínuo).
+### Run a simulation from Python
+
+```python
+from src.simulation.lap_time_solver import run_simulation
+from src.simulation.simulation_modes import SimulationConfig, SimulationMode
+from src.vehicle.fleet import get_vehicle_by_id
+from src.vehicle.setup import get_default_setup
+from src.tracks.hdf5 import CircuitHDF5Reader
+
+circuit, _ = CircuitHDF5Reader("tracks/interlagos.hdf5").read_circuit()
+vehicle    = get_vehicle_by_id("porsche_991_1")
+config     = SimulationConfig(mode=SimulationMode.QUALIFYING, setup=get_default_setup())
+
+result = run_simulation(config, vehicle, circuit)
+print(f"Lap time: {result.lap_time:.2f} s")
+result.save_csv("out.csv")
+```
 
 ---
-*Desenvolvido seguindo as diretrizes PEP 8 (Python) aplicadas à Engenharia Automotiva.*
+
+## Data files
+
+| Path | Content |
+|------|---------|
+| `tracks/interlagos.hdf5` | Interlagos centerline (GPS reference) |
+| `data/vehicle_models.json` | Vehicle preset definitions |
+
+---
+
+## References
+
+- Brayshaw, D.L. & Harrison, M.F. (2005). A quasi steady state approach to race car lap simulation. *Proc. IMechE Part D*, 219(3), 383–394.
+- Segers, J. (2014). *Analysis Techniques for Racecar Data Acquisition*, 2nd ed. SAE International.
+- Pacejka, H.B. (2012). *Tyre and Vehicle Dynamics*, 3rd ed. Butterworth-Heinemann.
+- Gillespie, T.D. (1992). *Fundamentals of Vehicle Dynamics*. SAE International.
+- Pi Toolbox Apostila de Treinamento — Porsche Carrera Cup Brasil (2014).

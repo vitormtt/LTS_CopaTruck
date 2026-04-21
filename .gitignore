@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Simulation outputs
+src/results/
+*.csv
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Local scripts / scratch
+extract_hdf5_waypoints.py
+
+# Adjacent repos / workspaces (not part of this project)
+LapTimeSimulator_CopaTruck.git/
+LapTimeSimulator_Generic/
+
+# Claude Code
+.claude/
