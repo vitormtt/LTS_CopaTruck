@@ -41,3 +41,85 @@ LapTimeSimulator_Generic/
 
 # Claude Code
 .claude/
+
+# ─ claude-code-template ─
+# ──────────────────────────────────────────
+# SARU / vitormtt — .gitignore canonical
+# ──────────────────────────────────────────
+
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+*.credentials*
+.claude/.notebooklm/
+.claude/settings.local.json
+.claude/.sessions/
+
+# Local staging (PDFs migrados para NotebookLM ficam aqui)
+.local/
+
+# PDFs: NotebookLM é o storage canônico — não versionar
+docs/**/*.pdf
+docs/**/*.PDF
+*.pdf
+*.PDF
+!docs/README.md
+!.claude/docs/**
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Node / TypeScript
+node_modules/
+dist/
+.next/
+.nuxt/
+.turbo/
+out/
+*.tsbuildinfo
+coverage/
+.vite/
+
+# MATLAB / Simulink
+*.asv
+*.autosave
+*.slxc
+slprj/
+codegen/
+*.mexw64
+*.mexa64
+*.mexmaci64
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+# Logs
+*.log
+logs/
+
