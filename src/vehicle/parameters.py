@@ -182,8 +182,11 @@ class VehicleParams:
 
     # Roll stiffness (ARB) [Nm/rad]
     k_roll: float = 230_000.0
-    k_roll_front: float = 115_000.0   # Front ARB stiffness
-    k_roll_rear: float = 115_000.0    # Rear ARB stiffness
+    k_roll_front: float = 115_000.0
+    k_roll_rear: float = 115_000.0
+
+    # Fuel consumption — used by telemetry accumulation in solver
+    fuel_consumption_l_per_km: float = 1.5  # [L/km] typical average race pace
 
     # Metadata
     name: str = "Unnamed Vehicle"
@@ -294,6 +297,7 @@ class VehicleParams:
             'Cl': self.aero.lift_coefficient,
 
             # --- Fuel model ---
+            'fuel_per_km': self.fuel_consumption_l_per_km,
             'bsfc': 265.0 if self.category == 'GT3_Cup' else 210.0,  # g/kWh
             'fuel_density': 0.74 if self.category == 'GT3_Cup' else 0.85,  # kg/L
         }
@@ -363,6 +367,10 @@ class VehicleParams:
                 max_deceleration=data.get('max_decel', 7.5),
                 abs_slip_target=data.get('abs_slip_target', 0.15),
             ),
+            k_roll=data.get('k_roll', 230_000.0),
+            k_roll_front=data.get('k_roll_front', 115_000.0),
+            k_roll_rear=data.get('k_roll_rear', 115_000.0),
+            fuel_consumption_l_per_km=data.get('fuel_per_km', 1.5),
             name=data.get('name', 'Unnamed Vehicle'),
             manufacturer=data.get('manufacturer', ''),
             year=data.get('year', 0),

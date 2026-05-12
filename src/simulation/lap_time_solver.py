@@ -68,6 +68,10 @@ class _LegacyVehicleParams:
     Cx: float = 0.85
     A_front: float = 8.7
     Cl: float = 0.0
+    k_roll_front: float = 115_000.0
+    k_roll_rear: float = 115_000.0
+    track_width: float = 1.565
+    fuel_per_km: float = 1.5
 
     def __post_init__(self):
         if self.gear_ratios is None:
@@ -331,15 +335,17 @@ def _get_rpm(v: float, gear: int, p: _LegacyVehicleParams) -> float:
 def _driver_inputs_from_accel(
     a_long: np.ndarray,
     v_kmh: np.ndarray,
-    v_max_kmh: float = 300.0,
+    max_decel: float = 10.0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Derive throttle_pct and brake_pct from longitudinal acceleration."""
-    a_pos = np.clip(a_long, 0, None)
-    a_neg = np.clip(-a_long, 0, None)
-    a_max_accel = max(float(np.max(a_pos)), 1e-6)
-    a_max_brake  = max(float(np.max(a_neg)), 1e-6)
-    throttle = np.clip((a_pos / a_max_accel) * 100.0, 0.0, 100.0)
-    brake    = np.clip((a_neg / a_max_brake) * 100.0, 0.0, 100.0)
+    """
+    Derive throttle_pct and brake_pct from longitudinal acceleration.
+
+    QSS solver is binary: forward pass = full throttle, backward pass = full
+    brake. Throttle is 100% wherever a_long > 0; brake scales linearly with
+    deceleration magnitude up to max_decel.
+    """
+    throttle = np.where(a_long > 0.0, 100.0, 0.0)
+    brake    = np.clip((-a_long / max(max_decel, 1e-6)) * 100.0, 0.0, 100.0)
     return throttle, brake
 
 
@@ -361,7 +367,7 @@ def _steering_from_radius(
 
 def _run_ggv_solver(
     p, x, y, n, ds, s, radius, mu, v0,
-    fuel_per_km, temp_ini, p_tyre_cold,
+    fuel_per_km, temp_ini, p_tyre_cold,  # fuel_per_km unused — reads p.fuel_per_km
     torque_map_rpm, torque_map_nm,
 ) -> dict:
     """GGV forward + backward pass solver."""
@@ -375,6 +381,20 @@ def _run_ggv_solver(
     rpm_profile  = np.zeros(n)
     temp_tyre    = np.ones(n) * temp_ini
     fuel_acum    = np.zeros(n)
+
+    # ARB load-sensitivity model
+    # The axle with the higher ARB fraction bears more lateral load transfer,
+    # which degrades grip (load-sensitivity of tyre Fz-mu curve).
+    _K_LS = 0.20                                          # grip loss per unit Fz fraction
+    _k_roll_total = max(p.k_roll_front + p.k_roll_rear, 1.0)
+    _arb_frac_max = max(p.k_roll_front, p.k_roll_rear) / _k_roll_total
+    _Fz_static    = p.m * g / 2.0                         # per-axle static load [N]
+    _tw           = max(p.track_width, 0.5)
+
+    # Tyre thermal model constants
+    _T_AMBIENT = 25.0    # [degC]
+    _T_SCALE   = 100.0   # [degC] rise at 2g combined load above ambient
+    _TAU_TYRE  = 50.0    # [s] thermal time constant
 
     v_profile[0] = v0
     gear_profile[0] = _select_gear_optimal(v0, p) if v0 > 0 else 1
@@ -398,10 +418,18 @@ def _run_ggv_solver(
         F_downforce = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
         F_normal    = p.m * g + F_downforce
 
-        v_lat_max  = np.sqrt(mu * g * radius[i])
-        a_lat_cur  = v_prev ** 2 / max(radius[i], 1.0)
-        F_lat_used = p.m * a_lat_cur
-        F_trac_grip = np.sqrt(max((mu * F_normal) ** 2 - F_lat_used ** 2, 0.0))
+        a_lat_cur   = v_prev ** 2 / max(radius[i], 1.0)
+        F_lat_used  = p.m * a_lat_cur
+
+        # ARB load-sensitivity: grip penalty on the more loaded axle
+        delta_fz_frac = np.clip(
+            p.m * a_lat_cur * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
+            0.0, 0.95
+        )
+        mu_eff = mu * (1.0 - _K_LS * delta_fz_frac)
+
+        v_lat_max   = np.sqrt(mu_eff * g * radius[i])
+        F_trac_grip = np.sqrt(max((mu_eff * F_normal) ** 2 - F_lat_used ** 2, 0.0))
         F_traction  = min(F_traction, F_trac_grip)
 
         a = (F_traction - F_drag) / p.m
@@ -413,14 +441,22 @@ def _run_ggv_solver(
         else:
             v_profile[i] = v_prev
 
-        a_total = np.sqrt(a ** 2 + (v_prev ** 2 / max(radius[i], 1.0)) ** 2)
-        temp_tyre[i] = temp_tyre[i - 1] + 0.05 * a_total
+        # Tyre thermal — asymptotic model with dissipation
+        a_combined   = np.sqrt(a ** 2 + a_lat_cur ** 2)
+        T_ideal      = _T_AMBIENT + _T_SCALE * min(a_combined / (2.0 * g), 1.0)
+        dt_step      = ds[i] / max(v_profile[i], 0.1)
+        temp_tyre[i] = temp_tyre[i - 1] + (dt_step / _TAU_TYRE) * (T_ideal - temp_tyre[i - 1])
 
     for i in reversed(range(n - 1)):
         v_next      = v_profile[i + 1]
         a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
+        delta_fz_f  = np.clip(
+            p.m * a_lat_next * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
+            0.0, 0.95
+        )
+        mu_eff_bwd  = mu * (1.0 - _K_LS * delta_fz_f)
         a_decel_max = min(
-            np.sqrt(max(0.0, (mu * g) ** 2 - a_lat_next ** 2)),
+            np.sqrt(max(0.0, (mu_eff_bwd * g) ** 2 - a_lat_next ** 2)),
             p.max_decel
         )
         if ds[i + 1] > 0:
@@ -434,7 +470,7 @@ def _run_ggv_solver(
         if i > 0 and v_profile[i] > 0:
             dt = ds[i] / v_profile[i]
             time_profile[i] = time_profile[i - 1] + dt
-            fuel_acum[i] = fuel_acum[i - 1] + (fuel_per_km / 1000.0) * ds[i]
+            fuel_acum[i]    = fuel_acum[i - 1] + (p.fuel_per_km / 1000.0) * ds[i]
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
@@ -519,8 +555,10 @@ def _run_standing_start(
         else:
             v_profile[i] = v_prev
 
-        a_total = np.sqrt(a ** 2 + (v_prev ** 2 / max(radius[i], 1.0)) ** 2)
-        temp_tyre[i] = temp_tyre[i - 1] + 0.05 * a_total
+        a_combined   = np.sqrt(a ** 2 + (v_prev ** 2 / max(radius[i], 1.0)) ** 2)
+        T_ideal      = 25.0 + 100.0 * min(a_combined / (2.0 * g), 1.0)
+        dt_step      = ds[i] / max(v_profile[i], 0.1)
+        temp_tyre[i] = temp_tyre[i - 1] + (dt_step / 50.0) * (T_ideal - temp_tyre[i - 1])
 
     for i in reversed(range(n - 1)):
         v_next      = v_profile[i + 1]
@@ -535,7 +573,7 @@ def _run_standing_start(
         if i > 0 and v_profile[i] > 0:
             dt = ds[i] / v_profile[i]
             time_profile[i] = time_profile[i - 1] + dt
-            fuel_acum[i] = fuel_acum[i - 1] + (fuel_per_km / 1000.0) * ds[i]
+            fuel_acum[i]    = fuel_acum[i - 1] + (p.fuel_per_km / 1000.0) * ds[i]
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
@@ -582,7 +620,6 @@ def run_simulation(
     x, y, n, ds, s, radius = _compute_track_geometry(circuit)
 
     mu          = params_eff.tire.friction_coefficient
-    fuel_per_km = config.setup.__dict__.get("fuel_per_km", 43.0)
     temp_ini    = config.track_temperature_c + 5.0
     p_tyre_cold = config.setup.tyre_pressure_avg_front
     wheelbase   = params_eff.mass_geometry.wheelbase
@@ -599,7 +636,7 @@ def run_simulation(
             p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
             mu=mu, launch_rpm=config.launch_rpm,
             wheelspin_limit=config.wheelspin_limit_slip,
-            fuel_per_km=fuel_per_km, temp_ini=temp_ini,
+            fuel_per_km=p.fuel_per_km, temp_ini=temp_ini,
             p_tyre_cold=p_tyre_cold,
             torque_map_rpm=torque_map_rpm,
             torque_map_nm=torque_map_nm,
@@ -607,7 +644,7 @@ def run_simulation(
     else:
         raw = _run_ggv_solver(
             p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
-            mu=mu, v0=v0, fuel_per_km=fuel_per_km,
+            mu=mu, v0=v0, fuel_per_km=p.fuel_per_km,
             temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
             torque_map_rpm=torque_map_rpm,
             torque_map_nm=torque_map_nm,
@@ -617,7 +654,7 @@ def run_simulation(
     v_ms     = raw["v_profile"]
     a_long   = raw["a_long"]
 
-    throttle, brake = _driver_inputs_from_accel(a_long, v_ms * 3.6)
+    throttle, brake = _driver_inputs_from_accel(a_long, v_ms * 3.6, max_decel=p.max_decel)
     steering = _steering_from_radius(
         radius, v_ms, wheelbase=wheelbase, steering_ratio=15.0
     )

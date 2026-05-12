@@ -107,4 +107,5 @@ def porsche_gt3_cup_992_1() -> VehicleParams:
         manufacturer="Porsche",
         year=2021,
         category="GT3_Cup",
+        fuel_consumption_l_per_km=1.5,
     )
