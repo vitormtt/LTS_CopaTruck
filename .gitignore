@@ -123,3 +123,13 @@ desktop.ini
 *.log
 logs/
 
+# Generated/IDE
+outputs/
+src/results/
+__pycache__/
+*.pyc
+.clinerules/
+.cursor/
+.opencode/
+.windsurf/
+*.egg-info/
