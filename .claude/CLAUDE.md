@@ -1,123 +1,60 @@
-# CLAUDE.md — LapTimeSimulator_CopaTruck
-# Project: Lap time simulator — Copa Truck (SARU Dynamics product)
-# Cluster: SARU Python | Partner: Pérez (post-graduation)
-# Context isolation: do not assume state from any previous session
-# Note: root CLAUDE.md is kept for backwards compatibility — this file takes precedence
+# .claude/CLAUDE.md — LapTimeSimulator_CopaTruck (SARU Course)
 
----
+> Complementa o `CLAUDE.md` da raiz e o global `~/.claude/CLAUDE.md`. Carregado automaticamente em toda sessão.
 
-## 1. PROJECT
+## Ordem de precedência
 
-| Field | Value |
-|-------|-------|
-| Repository | github.com/vitormtt/LapTimeSimulator_CopaTruck |
-| Python | 3.x |
-| Stack | NumPy, SciPy, HDF5, Streamlit |
-| Local path | C:\Users\vitor\OneDrive\Desktop\Pastas\LapTimeSimulator_V2 |
-| Status | Core solver complete (18/18 tests passing) |
+1. Instruções do prompt atual (mais forte)
+2. `.claude/rules/<stack>.md` (imports estáticos declarados em CLAUDE.md raiz)
+3. `.claude/CLAUDE.md` (este arquivo)
+4. `CLAUDE.md` da raiz do repo
+5. `~/.claude/CLAUDE.md` (global do usuário, mais fraco)
 
----
+Em caso de conflito, o contexto **mais específico** vence.
 
-## 2. MODEL
+## Workflow obrigatório
 
-**Bicycle Model 2-DOF** + extensions:
-- Lateral: cornering forces (Cf, Cr)
-- Longitudinal: traction limited by grip + aero drag
-- Engine: diesel torque curve (peak ~1300 RPM)
-- Transmission: automatic gear selection (1200–2200 RPM band)
-- Brakes: friction circle (max deceleration respecting a_lat)
+1. **Antes de editar**: ler arquivo, verificar testes existentes, entender módulo.
+2. **Durante edição**: seguir `rules/python.md` e `rules/streamlit.md`; zero magic numbers.
+3. **Após edição**: rodar `/lint-and-validate` ou `/quality-gate` (lint + type-check + testes).
+4. **Commits**: Conventional Commits (`feat/fix/chore/refactor/sim/docs/test`). Nunca `--no-verify`.
 
-**Solver: Two-Pass (Forward-Backward)**
-- Forward pass: max acceleration respecting traction and lateral limits
-- Backward pass: braking to not exceed corner entry speed
-- **Never alter the two-pass method without cross-validation against known lap times.**
+## Skills disponíveis
 
----
+| Skill | Arquivo | Quando acionar |
+|---|---|---|
+| `python-saru-standards` | `.claude/skills/python-saru-standards.md` | qualquer arquivo Python novo/revisão |
+| `python-solver-workflow` | `.claude/skills/python-solver-workflow.md` | solver LTS, grip limits, cross-validation |
+| `lint-and-validate` | `.claude/commands/lint-and-validate.md` | antes de commit; CI falhou |
+| `create-pr` | `.claude/commands/create-pr.md` | hora de abrir PR |
+| `/tdd` | `.claude/commands/tdd.md` | features novas com comportamento observável |
+| `/quality-gate` | `.claude/commands/quality-gate.md` | lint-and-validate + cobertura ≥85% |
 
-## 3. STRUCTURE
+## Sub-agents disponíveis
 
-```
-LapTimeSimulator_CopaTruck/
-├── src/
-│   ├── simulation/      ← lap_time_solver.py (core solver, two-pass)
-│   ├── vehicle/         ← VehicleParams and sub-dataclasses
-│   ├── tracks/          ← HDF5 reader/writer, TUM FTM integration
-│   ├── visualization/   ← Streamlit interface (interface.py)
-│   ├── optimization/    ← setup optimization (future)
-│   └── results/         ← exported .csv telemetry
-├── tracks/             ← circuit files (.hdf5)
-├── data/               ← vehicle presets (.json)
-├── tests/              ← pytest — must pass 100% before any push
-├── requirements.txt
-├── pyproject.toml
-└── .claude/
-    ├── CLAUDE.md        ← this file (canonical)
-    └── skills/
-        ├── python-saru-standards.md
-        ├── python-solver-workflow.md
-        └── python-telemetry.md
-```
+| Agente | Arquivo | Quando usar |
+|---|---|---|
+| `code-reviewer` | `.claude/agents/code-reviewer.md` | PRs, refatorações |
+| `bug-hunter` | `.claude/agents/bug-hunter.md` | root cause obscuro |
+| `docs-curator` | `.claude/agents/docs-curator.md` | sync PDFs / NotebookLM |
+| `security-guard` | `.claude/agents/security-guard.md` | auth, I/O, parse externos |
+| `architect` | `.claude/agents/architect.md` | novas features, design de módulos |
+| `tdd-enforcer` | `.claude/agents/tdd-enforcer.md` | qualquer feature nova |
+| `low-cost-runner` | `.claude/agents/low-cost-runner.md` | leitura/busca/catalogação (Haiku) |
 
----
+## NotebookLM (pendente inicialização)
 
-## 4. OOP ARCHITECTURE
+sources.yaml lista os PDFs do projeto. Para ativar:
+1. Criar notebook em notebooklm.google.com
+2. Preencher `notebook_id` em `.claude/docs/sources.yaml`
+3. Rodar `/notebooklm-ingest` para ingerir os PDFs de `docs/`
 
-```python
-# Dataclasses (SSoT for parameters)
-@dataclass VehicleMassGeometry  # mass, wheelbase, CG, inertias
-@dataclass TireParams            # Cf, Cr, mu, wheel radius
-@dataclass AeroParams            # Cd, frontal area, Cl
-@dataclass EngineParams          # power, torque, RPM
-@dataclass TransmissionParams    # gears, ratios, final drive
-@dataclass BrakeParams           # max force, balance, deceleration
-@dataclass VehicleParams         # composes all sub-dataclasses
+Até inicialização: NÃO usar `/research` ou `/notebooklm-ingest` (retornam erro de guard).
 
-# ABCs (interchangeable subsystems)
-class TireModel(ABC)    ← PacejkaModel, LinearTireModel
-class Solver(ABC)       ← TwoPassSolver
-class TrackLoader(ABC)  ← HDF5Loader, TUMFTMLoader
-```
+## Proibições
 
-- `LapSimulator` contains `VehicleParams`, `Track`, `Solver` — never inherits
-- Default preset: `copa_truck_2dof_default()` (Mercedes-Benz Actros 600 kW)
-- `__repr__` mandatory on all dataclasses
-
----
-
-## 5. SSOT — PARAMETERS
-
-| Source | Content |
-|--------|---------|
-| `data/<name>.json` | Vehicle preset (serialized VehicleParams) |
-| `tracks/<name>.hdf5` | Circuit geometry (centerline, boundaries, width) |
-
-Never hardcode vehicle or track values — always load from JSON or HDF5.
-
----
-
-## 6. GOLDEN RULES
-
-1. Never hardcode vehicle or track parameters.
-2. Never alter the two-pass solver without cross-validation.
-3. pytest must pass 100% before any commit is proposed.
-4. ABCs must be fully implemented — no abstract method left unimplemented.
-5. Keep this file up to date — include CLAUDE.md diff when proposing structural changes.
-
----
-
-## 7. CODE STANDARDS
-
-See `.claude/skills/python-saru-standards.md` for full conventions.
-
-### Git — Conventional Commits
-```
-feat / fix / refactor / sim / docs / chore / test / perf
-```
-
----
-
-## 8. STATUS (2026)
-
-- Core solver: complete and validated (18/18 tests passing)
-- Pending: frontend customization + vehicle params from Pérez
-- Roadmap: 3-DOF roll dynamics, genetic algorithm setup optimization, Pacejka tire model
+- Hardcode de parâmetros de veículo ou pista fora de YAML/JSON/HDF5.
+- Commitar `.env`, `*.credentials*`, PDFs técnicos.
+- `git push --force` / `git reset --hard` / `rm -rf` sem instrução explícita do Vitor.
+- Criar abstração nova quando 2 implementações concretas resolvem o problema.
+- Alterar two-pass solver sem cross-validation prévia.

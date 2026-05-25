@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python -m pytest tests/ --collect-only -q)",
+      "Bash(streamlit run src/visualization/interface.py:*)",
+      "Bash(streamlit run app.py:*)"
+    ]
+  }
+}

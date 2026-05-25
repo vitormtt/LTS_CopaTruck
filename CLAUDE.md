@@ -1,13 +1,33 @@
-# LapTimeSimulator_CopaTruck
+# LapTimeSimulator_CopaTruck — CLAUDE.md (SARU Course)
+
+## Stack deste repositório
+
+@.claude/rules/python.md
+@.claude/rules/streamlit.md
+
+<!-- regras de escopo restrito — não ativar neste repo -->
+<!-- @.claude/rules/fastapi.md    → apenas repos com backend FastAPI -->
+<!-- @.claude/rules/matlab.md     → apenas fullvehiclesimulation_fsae -->
+<!-- @.claude/rules/nestjs.md     → apenas automotiveportfolio_global (SARU Hub) -->
+
+## Stack declarado
+
+| Camada | Tecnologia | Status |
+|--------|-----------|--------|
+| Kernel/cálculo | Python 3.11 + NumPy/SciPy | ativo |
+| Interface | Python 3.11 + Streamlit | ativo |
+| Frontend web | Next.js (React/TS) | não planejado para este produto |
+| Infra | local (sem Docker por enquanto) | — |
+
+---
 
 ## Context
-- Lap time simulator for Copa Truck — SARU Dynamics product
-- Technical partnership: Pérez (post-graduation)
-- Stack: Python 3.x, Streamlit, NumPy, SciPy, HDF5
+- Lap time simulator para Copa Truck — SARU Course (SARU Dynamics)
+- Parceria técnica: Pérez (pós-graduação)
 - GitHub: vitormtt/LapTimeSimulator_CopaTruck
-- Local path: `C:\Users\vitor\OneDrive\Desktop\Pastas\LapTimeSimulator_V2`
+- Caminho local Ubuntu: `~/Projects/laptimesimulator_copatruck`
 
-> **This file (`CLAUDE.md`) is a living document** — update it whenever architecture, conventions, or sequences change.
+> **Este arquivo (`CLAUDE.md`) é um documento vivo** — atualizar sempre que arquitetura, convenções ou sequências mudarem.
 
 ---
 
@@ -16,15 +36,16 @@
 ```
 LapTimeSimulator_CopaTruck/
 ├── src/
-│   ├── simulation/          ← lap_time_solver.py — core solver (two-pass)
-│   ├── vehicle/             ← VehicleParams and sub-dataclasses
+│   ├── simulation/          ← lap_time_solver.py — solver principal (two-pass)
+│   ├── vehicle/             ← VehicleParams e sub-dataclasses
 │   ├── tracks/              ← HDF5 reader/writer, TUM FTM integration
-│   ├── visualization/       ← Streamlit interface (interface.py)
-│   ├── optimization/        ← setup optimization (future)
-│   └── results/             ← exported .csv telemetry
-├── tracks/                  ← circuit files (.hdf5)
-├── data/                    ← vehicle presets (.json)
-├── tests/                   ← pytest — must pass 100% before any push
+│   ├── visualization/       ← interface Streamlit (interface.py)
+│   ├── optimization/        ← otimização de setup (futuro)
+│   └── results/             ← telemetria exportada .csv
+├── tracks/                  ← arquivos de circuito (.hdf5)
+├── data/                    ← presets de veículo (.json)
+├── tests/                   ← pytest — 100% antes de qualquer push
+├── docs/                    ← documentação técnica
 ├── requirements.txt
 ├── pyproject.toml
 └── README.md
@@ -34,131 +55,105 @@ LapTimeSimulator_CopaTruck/
 
 ## Simulation Model
 
-**Bicycle Model 2DOF** with extensions:
-- Lateral dynamics: cornering forces (Cf, Cr)
-- Longitudinal dynamics: traction limited by grip + aerodynamic drag
-- Engine: realistic torque curve (diesel peak ~1300 RPM)
-- Transmission: automatic gear selection to maintain 1200–2200 RPM
-- Brakes: friction circle (max deceleration respecting a_lat)
+**Bicycle Model 2DOF** com extensões:
+- Lateral: forças de cornering (Cf, Cr)
+- Longitudinal: tração limitada por grip + arrasto aerodinâmico
+- Motor: curva de torque diesel realista (pico ~1300 RPM)
+- Transmissão: troca automática de marchas (banda 1200–2200 RPM)
+- Freios: círculo de atrito (desaceleração máxima respeitando a_lat)
 
 ### Forward-Backward Solver (Two-Pass)
-1. **Forward pass**: maximum acceleration respecting traction and lateral velocity limits
-2. **Backward pass**: braking to not exceed corner entry speed limits
-- **Never alter the two-pass method without cross-validation against known lap times.**
+1. **Forward pass**: aceleração máxima respeitando tração e limites laterais
+2. **Backward pass**: frenagem para não exceder a velocidade de entrada na curva
+- **Nunca alterar o método two-pass sem cross-validation contra tempos conhecidos.**
 
 ---
 
 ## OOP Architecture
 
-### Dataclasses (data with validation)
+### Dataclasses (SSoT de parâmetros)
 ```python
-@dataclass
-class VehicleMassGeometry:  # mass, wheelbase, CG, inertias
-@dataclass
-class TireParams:           # Cf, Cr, mu, wheel radius
-@dataclass
-class AeroParams:           # Cd, frontal area, Cl
-@dataclass
-class EngineParams:         # power, torque, RPM
-@dataclass
-class TransmissionParams:   # gears, ratios, final drive
-@dataclass
-class BrakeParams:          # max force, balance, deceleration
-@dataclass
-class VehicleParams:        # composes all sub-dataclasses above
+@dataclass class VehicleMassGeometry  # massa, wheelbase, CG, inércias
+@dataclass class TireParams            # Cf, Cr, mu, raio da roda
+@dataclass class AeroParams            # Cd, área frontal, Cl
+@dataclass class EngineParams          # potência, torque, RPM
+@dataclass class TransmissionParams    # marchas, relações, desmultiplicação
+@dataclass class BrakeParams           # força máx, balanceamento, desaceleração
+@dataclass class VehicleParams         # compõe todos os sub-dataclasses
 ```
-- `__repr__` mandatory on all dataclasses.
-- `VehicleParams` is the SSoT for vehicle data — never hardcode vehicle constants outside it.
-- Default preset: `copa_truck_2dof_default()` (Mercedes-Benz Actros 600 kW).
+- `__repr__` obrigatório em todos os dataclasses.
+- `VehicleParams` é o SSoT — nunca hardcodar constantes fora dele.
+- Preset default: `copa_truck_2dof_default()` (Mercedes-Benz Actros 600 kW).
 
-### ABCs (interchangeable subsystems)
+### ABCs (subsistemas intercambiáveis)
 ```python
-class TireModel(ABC):       ← PacejkaModel, LinearTireModel
-class Solver(ABC):          ← TwoPassSolver (extensible)
-class TrackLoader(ABC):     ← HDF5Loader, TUMFTMLoader
+class TireModel(ABC):    ← PacejkaModel, LinearTireModel
+class Solver(ABC):       ← TwoPassSolver (extensível)
+class TrackLoader(ABC):  ← HDF5Loader, TUMFTMLoader
 ```
-- ABCs enforce interface contracts — no subclass may leave abstract methods unimplemented.
-- Switching tire model or solver must not require changes outside the respective module.
+- ABCs definem contratos de interface — nenhuma subclasse pode deixar método abstrato não implementado.
+- Trocar modelo de pneu ou solver não deve exigir mudanças fora do módulo.
 
-### Composition Rule
-- `LapSimulator` **contains** `VehicleParams`, `Track`, `Solver` — never inherits from them.
-- Inheritance only for genuine IS-A relationships.
+### Regra de composição
+- `LapSimulator` **contém** `VehicleParams`, `Track`, `Solver` — nunca herda deles.
+- Herança apenas para relacionamentos IS-A genuínos.
 
 ---
 
 ## SSoT — Parameters
 
-| Source | Content |
-|--------|---------|
-| `data/<name>.json` | Vehicle preset (serialized `VehicleParams`) |
-| `tracks/<name>.hdf5` | Circuit geometry (centerline, boundaries, width) |
+| Fonte | Conteúdo |
+|-------|----------|
+| `data/<nome>.json` | Preset de veículo (VehicleParams serializado) |
+| `tracks/<nome>.hdf5` | Geometria do circuito (centerline, limites, largura) |
 
-- **Never hardcode vehicle or track values** — always load from JSON or HDF5.
-- New vehicle: implement via `VehicleParams` dataclass and save with `.save_to_json()`.
-- New circuit: implement via `CircuitData` and write with `CircuitHDF5Writer`.
+- **Nunca hardcodar valores de veículo ou pista** — sempre carregar via JSON ou HDF5.
+- Novo veículo: via `VehicleParams` e `.save_to_json()`.
+- Novo circuito: via `CircuitData` e `CircuitHDF5Writer`.
 
 ---
 
 ## Circuit Format (HDF5)
 
-Compressed HDF5 with:
+HDF5 comprimido com:
 - `centerline_x`, `centerline_y`
-- Left/right boundaries
-- Track width
-- Metadata: name, length, coordinate system
+- Limites esquerdo/direito
+- Largura da pista
+- Metadados: nome, comprimento, sistema de coordenadas
 
-Sources: TUM FTM (`src/tracks/tumftm.py`), custom generators (`src/tracks/generator.py`).
+Fontes: TUM FTM (`src/tracks/tumftm.py`), geradores customizados (`src/tracks/generator.py`).
 
 ---
 
 ## Code Standards
 
-### Python — General
-- PEP 8 mandatory
-- Type hints on all functions and methods
-- Docstrings: Google Style (class + all public methods)
-- No magic numbers — all constants in dataclass fields or named module-level constants
-- No hardcoding of vehicle or track values
-
-### Python — OOP
-- `@dataclass` for data structures with validation
-- `ABC` for interchangeable subsystem interfaces
-- Private attributes prefixed with `_`; public interface via `@property`
-- `__repr__` and `__str__` on all data classes
-- Avoid multiple inheritance; use Mixins only for orthogonal behaviors
-- One module per physical or functional subsystem
-- `__init__.py` exports only the public interface
-
-### Testing
-- `pytest tests/` must pass 100% before any commit
-- Unit tests per class in `tests/test_<module>.py`
-- Never push with failing tests
+Ver `.claude/rules/python.md` e `.claude/rules/streamlit.md` para convenções completas.
 
 ### Git — Conventional Commits
 ```
-feat:     new feature or simulation capability
-fix:      bug fix or parameter correction
-refactor: code restructure without behavior change
-sim:      simulation result update or scenario change
-docs:     README, comments, CLAUDE.md, reports
-chore:    cleanup, config, tooling, dependencies
-test:     add or update validation/regression tests
-perf:     performance improvement (solver speed, memory)
+feat:     nova feature ou capacidade de simulação
+fix:      bug fix ou correção de parâmetro
+refactor: reestruturação sem mudança de comportamento
+sim:      atualização de resultado ou cenário
+docs:     README, comentários, CLAUDE.md, relatórios
+chore:    limpeza, config, tooling, dependências
+test:     adicionar ou atualizar testes de validação
+perf:     melhoria de performance (velocidade do solver, memória)
 ```
 
 ---
 
 ## Status (2026)
-- Core solver: complete and validated (18/18 tests passing)
-- Pending: frontend customization + vehicle params from Pérez
-- Roadmap: 3DOF roll dynamics, genetic algorithm setup optimization, Pacejka tire model, multi-lap comparison
+- Solver principal: completo e validado (18/18 testes)
+- Pendente: customização frontend + parâmetros de veículo do Pérez
+- Roadmap: dinâmica 3DOF, otimização genética de setup, modelo de pneu Pacejka, comparação multi-volta
 
 ---
 
 ## Golden Rules for Claude
 
-1. **Never hardcode vehicle or track parameters** — all values via `VehicleParams` JSON or HDF5.
-2. **Never alter the two-pass solver** without cross-validation against known lap times.
-3. **pytest must pass 100%** before any commit is proposed.
-4. **ABCs must be fully implemented** — no abstract method left unimplemented in subclasses.
-5. **Keep this file up to date** — when proposing structural changes, include a `CLAUDE.md` diff.
+1. **Nunca hardcodar parâmetros de veículo ou pista** — sempre via `VehicleParams` JSON ou HDF5.
+2. **Nunca alterar o two-pass solver** sem cross-validation contra tempos conhecidos.
+3. **pytest deve passar 100%** antes de qualquer commit proposto.
+4. **ABCs devem ser completamente implementadas** — nenhum método abstrato sem implementação.
+5. **Manter este arquivo atualizado** — quando propor mudanças estruturais, incluir diff do CLAUDE.md.

@@ -1,95 +1,44 @@
 ---
 name: python-saru-standards
-description: |
-  Enforces SARU Dynamics Python coding conventions across all lap time
-  simulator and analysis projects (CopaTruck, StockCar, Generic, LapAnalyzer).
-  Activate when creating or reviewing any Python file: models, solvers,
-  pipelines, tests, or configuration modules.
+description: >
+  Enforces SARU Dynamics Python coding conventions across all products:
+  SARU Course (Copa Truck), SARU Sim (StockCar, Generic), SARU Analyze (LapAnalyzer).
 ---
+## Quando acionar
+Qualquer arquivo Python novo ou revisado neste repo.
 
-## Module Template
+## Convenções SARU Python
 
-```python
-"""
-Module: <name>
-Description: <one-line purpose>
-Reference: <Pacejka 2012 / SAE XXXX / internal>
-Author: Vitor Toledo | SARU Dynamics
-Updated: YYYY-MM-DD
-"""
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Protocol
-```
+### Estrutura
+- Layout `src/`: `src/<pkg>/` com `__init__.py` exportando apenas interface pública
+- `pyproject.toml` como SSoT: build, deps, ruff, mypy, pytest
+- Testes em `tests/unit/`, `tests/integration/`
 
-## Naming Conventions
+### Tipagem
+- Type hints obrigatórios em toda função/método público
+- `from __future__ import annotations` no topo
+- `mypy --strict`: zero `# type: ignore` sem comentário justificando
 
-| Element | Convention | Example |
-|---------|------------|---------|
-| Classes | PascalCase | `TwoPassSolver` |
-| Functions / variables | snake_case | `compute_lateral_force` |
-| Constants | UPPER_CASE | `G_ACCEL = 9.81` |
-| Private attributes | `_` prefix | `self._state` |
-| Abstract base classes | Suffix `ABC` or use ABC directly | `TireModel(ABC)` |
+### OOP
+- `@dataclass` para parâmetros e resultados; `frozen=True` para value objects
+- `ABC` para subsistemas intercambiáveis (Solver, TireModel, TrackLoader)
+- Composição > herança; `LapSimulator` contém Vehicle/Track/Solver, nunca herda
+- `__repr__` obrigatório em todos os dataclasses
+- Atributos privados com `_prefix`; interface pública via `@property`
 
-## Type Hints & Docstrings
+### Numérico / Física
+- Zero magic numbers: constantes nomeadas no topo do módulo ou em `config/`
+- NumPy vetorização > loops Python para arrays
+- SI throughout (m, kg, s, rad); conversões explícitas e documentadas
+- `hypothesis` para property-based tests em invariantes numéricas
 
-- Type hints required on ALL public function and method signatures
-- Docstrings: Google Style on all classes and public methods
-- `__repr__` mandatory on all dataclasses
+### Git
+- Conventional Commits: `feat/fix/refactor/sim/docs/chore/test/perf`
+- Nunca `--no-verify`
+- `pytest` deve passar 100% antes de qualquer commit proposto
 
-## Dataclass Rules
-
-- Use `@dataclass` for all parameter and result structures
-- No hardcoding inside dataclass defaults — use `field(default_factory=...)`
-- Serialization: JSON (vehicle presets) or YAML (configs) or HDF5 (tracks)
-- `VehicleParams` is SSoT — never duplicate vehicle constants elsewhere
-
-## ABC Rules
-
-- Every interchangeable subsystem gets an ABC (TireModel, Solver, TrackLoader)
-- No abstract method may be left unimplemented in any subclass
-- Switching implementation must require zero changes outside the module
-
-## Composition Rule
-
-- `LapSimulator` **contains** Vehicle, Track, Solver — never inherits them
-- `setup_optimizer` **wraps** LapSimulator — optimization loop only
-- `weekend_manager` **uses** LapSimulator — orchestration only
-
-## Module Boundaries (StockCar / Generic)
-
-| Module | Owns | Must NOT contain |
-|--------|------|------------------|
-| `core/` | Physics, solver | I/O, UI, strategy |
-| `data_pipeline/` | Ingest, validate | Simulation logic |
-| `kpis/` | KPI computation | Raw simulation |
-| `setup_optimizer/` | Optimisation loop | Physics model |
-| `weekend_manager/` | Session workflow | Lap physics |
-
-## Prohibited Patterns
-
-- No magic numbers — all constants in dataclass fields or named module-level constants
-- No hardcoding of vehicle, track or season values in Python source
-- No multiple inheritance — Mixins only for orthogonal behaviours
-- `__init__.py` exports only the public interface
-
-## Testing
-
-- `pytest tests/` must pass 100% before any commit
-- Unit tests: `tests/test_<module>.py`
-- Integration tests: `tests/test_integration.py`
-- Never propose a commit with failing tests
-
-## Git — Conventional Commits
-
-```
-feat     — new feature or simulation capability
-fix      — bug fix or parameter correction
-refactor — restructure without behaviour change
-sim      — simulation result update or scenario change
-docs     — README, comments, CLAUDE.md, reports
-chore    — cleanup, config, tooling, dependencies
-test     — add or update validation / regression tests
-perf     — performance improvement (solver speed, memory)
-```
+### Proibições
+- Hardcode de parâmetros de veículo, pista ou calendário fora de YAML/JSON/HDF5
+- `except Exception: pass`
+- `print()` em código de produção (use `logging`)
+- `globals().update`, `exec`, `eval` em produção
