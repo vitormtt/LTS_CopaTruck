@@ -183,8 +183,8 @@ def load_telemetry(filepath: str | Path, delimiter: str = ",") -> pd.DataFrame:
     resolved = _resolve_columns(df)
     for ch in ("long_g", "lat_g"):
         col = resolved.get(ch)
-        if col and df[col].abs().max() < 10.0:
-            # Values < 10 are likely in g units → convert
+        if col and df[col].abs().max() < 5.0:
+            # Values < 5.0 are likely in g units → convert (trucks rarely exceed 0.5g ≈ 4.9 m/s²)
             df[col] = df[col] * 9.81
             warnings.warn(f"Column '{col}' converted from g to m/s²")
 

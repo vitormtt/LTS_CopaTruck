@@ -5,7 +5,7 @@
 - Technical partnership: Pérez (post-graduation)
 - Stack: Python 3.x, Streamlit, NumPy, SciPy, HDF5
 - GitHub: vitormtt/LapTimeSimulator_CopaTruck
-- Local path: `C:\Users\vitor\OneDrive\Desktop\Pastas\LapTimeSimulator_V2`
+- Local path: `/media/hd_externo/01_Workspace/LapTimeSimulator_CopaTruck`
 
 > **This file (`CLAUDE.md`) is a living document** — update it whenever architecture, conventions, or sequences change.
 
