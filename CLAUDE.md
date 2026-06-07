@@ -1,11 +1,13 @@
 # LapTimeSimulator_CopaTruck
 
 <!-- SARU-DOC-SYNC:START (gerado por saru-doc-sync.sh — NAO duplicar regras globais aqui) -->
-> **Regras globais (operador):** `~/.claude/CLAUDE.md` — **v3.5 (2026-06-06)**. Fonte unica; NAO duplicar aqui.
+> **Regras globais (operador):** `~/.claude/CLAUDE.md` — fonte unica (versao vigente no proprio arquivo). NAO duplicar aqui.
 > **Memoria global SARU:** `/home/vitor/Projects/01_Workspace/SARU_GLOBAL_MEMORY.md`
 > **Memoria deste repo:** `SARU_PROJECT_MEMORY.md`
 > **Git Flow:** `main` (release) + `develop` (integracao) + `feature/*`. Merge `--no-ff`. Sem PR.
 <!-- SARU-DOC-SYNC:END -->
+
+
 
 
 > Motor A — Claude Code (GUI). Matriz completa em `AGENTS.md`.
