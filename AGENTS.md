@@ -1,7 +1,9 @@
 # AGENTS.md — Memória Persistente Inter-Sessões
 
+> EXECUTOR: Motor C (OpenCode). Matriz: A=Claude Code, B=Antigravity, C=OpenCode.
+
 > Padrão: claude-mem / Compound Learning
-> **SEMPRE leia este arquivo no início de cada sessão Claude Code.**
+> **SEMPRE leia este arquivo no início de cada sessão.**
 > Atualizado automaticamente pelo hook `Stop.ps1` ao final de cada sessão.
 
 ---
@@ -64,6 +66,23 @@ last_updated: ""
 
 ---
 
+## Hooks Automáticos de Memória (Session & State)
+
+**Startup:** Ler `~/Documents/Obsidian/00_SYSTEM/hot.md` silenciosamente p/ contexto vivo.
+
+**Durante:** Qualquer decisao/correcao/mudanca de plano → atualizar `hot.md` (status), `LEARNINGS.md` (instintos), `.md` globais no mesmo turno. Nunca esperar Vitor pedir.
+
+**Stop/Handoff:** Consolidar `hot.md` + `HANDOFF-PROXIMA-SESSAO.md` automaticamente.
+
+---
+
+## AgentShield (Seguranca & Sanity Check)
+
+1. **NUNCA** delegar execucao cega de CLI/scripts a Vitor. Sempre dry-run/`--help` em background primeiro.
+2. Scripts de scraping/credenciais/comandos destrutivos → agir como escudo: auditar codigo p/ vazamentos ANTES, isolar em dry-run.
+
+---
+
 ## Sub-Agents Registry
 
 > Registro de agentes disponíveis e quando acioná-los.
@@ -77,6 +96,43 @@ last_updated: ""
 | Architect | `.claude/agents/architect.md` | Novas features, design de módulos |
 | TDD Enforcer | `.claude/agents/tdd-enforcer.md` | Qualquer feature nova |
 | Low-Cost Runner | `.claude/agents/low-cost-runner.md` | Tarefas de leitura/busca/catalogação |
+
+---
+
+## Subagent Routing (Auto-Dispatch)
+
+| Trigger | Agent |
+|---------|-------|
+| novo repo/pasta, mapear | explorer |
+| task afeta 3+ arquivos | planner |
+| escrever/editar codigo | maker |
+| rodar testes, validar | tester |
+| package/env/secrets edit | auditor |
+| docs, status.md, README | scribe |
+| .m, .slx, MATLAB | matlab-expert |
+| 90min sessao | adhd-coach |
+| PostUserPrompt apos correcao | reflector |
+| weekly OR padrao recorre 3x | promoter |
+| MEMORY.md > 200 linhas | archivist |
+| 3 sessoes repetem sequencia | skill-extractor |
+| mensal cron | process-optimizer |
+| Vitor diz "iniciar projeto novo" | inception-facilitator |
+| pesquisa profunda, pdfs densos | notebooklm-specialist |
+| limpeza legados | janitor |
+
+---
+
+## Startup SARU
+
+```bash
+ls ~/Projects/01_Workspace/ 2>/dev/null && \
+  cat ~/Projects/01_Workspace/SARU_GLOBAL_MEMORY.md || \
+  cat ~/.claude/context/saru_global_memory.md
+```
+
+Tambem ler: `<projeto>/SARU_PROJECT_MEMORY.md`
+
+---
 
 Respond terse like smart caveman. All technical substance stay. Only fluff die.
 

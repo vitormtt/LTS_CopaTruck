@@ -72,6 +72,8 @@ class _LegacyVehicleParams:
     k_roll_rear: float = 115_000.0
     track_width: float = 1.565
     fuel_per_km: float = 1.5
+    speed_limit: float = 999.0
+
 
     def __post_init__(self):
         if self.gear_ratios is None:
@@ -247,7 +249,14 @@ def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
     d = vp.to_solver_dict()
     p = _LegacyVehicleParams(**{k: v for k, v in d.items()
                                  if k in _LegacyVehicleParams.__dataclass_fields__})
+    # Set speed limit for trucks (200 km/h = 55.56 m/s to match qualifying telemetry)
+    if vp.category == "Truck" or "truck" in vp.name.lower():
+        p.speed_limit = 200.0 / 3.6
+
+    else:
+        p.speed_limit = 999.0
     return p
+
 
 
 def _compute_track_geometry(circuit) -> tuple:
@@ -297,6 +306,8 @@ def _torque_curve_interp(
     """Interpolated torque from VehicleParams engine map."""
     if not torque_curve_rpm:
         return 0.0
+    if rpm > rpm_max:
+        return 0.0  # Rev-limiter fuel cut
     rpm_c = float(np.clip(rpm, torque_curve_rpm[0], torque_curve_rpm[-1]))
     return float(np.interp(rpm_c, torque_curve_rpm, torque_curve_nm))
 
@@ -329,7 +340,9 @@ def _get_rpm(v: float, gear: int, p: _LegacyVehicleParams) -> float:
         return p.rpm_idle
     ratio_total = p.gear_ratios[gear - 1] * p.final_drive
     rpm = (v / max(p.r_wheel, 0.01)) * ratio_total * 60.0 / (2 * np.pi)
-    return float(np.clip(rpm, p.rpm_idle, p.rpm_max))
+    # Clip at idle but allow overrevving past rpm_max to trigger rev-limiter torque drop
+    return float(np.maximum(rpm, p.rpm_idle))
+
 
 
 def _driver_inputs_from_accel(
@@ -437,9 +450,10 @@ def _run_ggv_solver(
 
         if ds[i] > 0:
             v_possible   = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
-            v_profile[i] = min(v_possible, v_lat_max)
+            v_profile[i] = min(v_possible, v_lat_max, p.speed_limit)
         else:
-            v_profile[i] = v_prev
+            v_profile[i] = min(v_prev, p.speed_limit)
+
 
         # Tyre thermal — asymptotic model with dissipation
         a_combined   = np.sqrt(a ** 2 + a_lat_cur ** 2)
@@ -551,9 +565,10 @@ def _run_standing_start(
         v_lat_max = np.sqrt(mu * g * radius[i])
         if ds[i] > 0:
             v_possible   = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
-            v_profile[i] = min(v_possible, v_lat_max)
+            v_profile[i] = min(v_possible, v_lat_max, p.speed_limit)
         else:
-            v_profile[i] = v_prev
+            v_profile[i] = min(v_prev, p.speed_limit)
+
 
         a_combined   = np.sqrt(a ** 2 + (v_prev ** 2 / max(radius[i], 1.0)) ** 2)
         T_ideal      = 25.0 + 100.0 * min(a_combined / (2.0 * g), 1.0)

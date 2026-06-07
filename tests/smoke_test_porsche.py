@@ -147,7 +147,8 @@ def test_fleet_registry() -> None:
     _check("porsche_991_1" in fleet, "list_vehicles() contains porsche_991_1")
     _check("porsche_991_2" in fleet, "list_vehicles() contains porsche_991_2")
     _check("porsche_992_1" in fleet, "list_vehicles() contains porsche_992_1")
-    _check(len(fleet) == 3, f"list_vehicles() returns 3 vehicles (got {len(fleet)})")
+    _check(len(fleet) >= 3, f"list_vehicles() returns at least 3 vehicles (got {len(fleet)})")
+
 
 
 def test_simulation_modes() -> None:

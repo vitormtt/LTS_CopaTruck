@@ -123,3 +123,14 @@
 - `pip install -r requirements.txt` (→ `uv sync --frozen` após Fase A2)
 - `pytest tests/` — deve 100% antes de qualquer commit
 - `streamlit run src/visualization/interface.py`
+
+
+### Decisão Estratégica / Nova Feature (2026-06-04) — Brake Trace Analysis & Driver Confidence
+- **Objetivo:** Otimizar os produtos da empresa SARU (especialmente SARU_LapAnalyzer e LapTimeSimulators) usando métricas de Brake Trace (pressão/travel) para quantificar técnica e confiança do piloto.
+- **Referência Core (Bíblia):** *Analysis Techniques for Racecar Data Acquisition* (Jorge Segers).
+- **Métricas a implementar (Inspiração LinkedIn/Yash Vaidya):**
+  1. *Initial application:* Tempo de delay off-throttle para freio (coasting) e Brake Speed (derivada do pedal). Atingir pico rápido em carros de alto downforce.
+  2. *Reaching peak pressure:* Consistência na pressão máxima entre voltas vs. G-longitudinal (diagnóstico piloto vs mecânica).
+  3. *Release phase:* Trail braking suave; evitar over-slowing (onde o piloto solta o freio totalmente antes de virar o volante).
+  4. *Combined G (G-Sum):* Identificar "valleys" na transição freio-curva (sinal de limite de grip subutilizado).
+- **Ação Global:** Todos os agentes devem tratar a "Brake Trace Analysis" como prioridade máxima ao trabalhar em telemetria, modelagem ou data-pipeline nos repositórios SARU.

@@ -130,6 +130,54 @@ class EngineParams:
     max_coolant_temp: float = 110.0  # [°C]
     max_oil_temp: float = 130.0      # [°C]
 
+    def __post_init__(self):
+        # Force lists if None was loaded
+        if self.torque_curve_rpm is None:
+            self.torque_curve_rpm = []
+        if self.torque_curve_nm is None:
+            self.torque_curve_nm = []
+
+        if len(self.torque_curve_rpm) == 0:
+            is_truck = (self.rpm_max < 3500.0) or (self.max_torque > 1500.0)
+            
+            if is_truck:
+                # Flat racing diesel torque plateau
+                rpm_torque_max = self.rpm_max * 0.5  # e.g., 1300 RPM
+                rpm_power_max = self.rpm_max * 0.8   # e.g., 2100 RPM
+                
+                self.torque_curve_rpm = [
+                    float(self.rpm_idle),
+                    float(rpm_torque_max),
+                    float(rpm_power_max),
+                    float(self.rpm_max * 0.95),
+                    float(self.rpm_max)
+                ]
+                self.torque_curve_nm = [
+                    float(self.max_torque * 0.4), # 40% torque at idle
+                    float(self.max_torque),       # peak torque (2800-3350 Nm)
+                    float(self.max_torque * 0.95),# 95% torque at peak power (2100 RPM)
+                    float(self.max_torque * 0.8), # 80% torque at 2470 RPM
+                    float(self.max_torque * 0.6)  # 60% torque at redline
+                ]
+            else:
+                # GT3 Cup or high revving racecar
+                rpm_torque_max = self.rpm_max * 0.75 # e.g., 6000-6500 RPM
+                self.torque_curve_rpm = [
+                    float(self.rpm_idle),
+                    float(rpm_torque_max * 0.6),
+                    float(rpm_torque_max),
+                    float(self.rpm_max * 0.9),
+                    float(self.rpm_max)
+                ]
+                self.torque_curve_nm = [
+                    float(self.max_torque * 0.5),
+                    float(self.max_torque * 0.85),
+                    float(self.max_torque),
+                    float(self.max_torque * 0.95),
+                    float(self.max_torque * 0.8)
+                ]
+
+
 
 @dataclass
 class TransmissionParams:
@@ -386,16 +434,16 @@ def copa_truck_2dof_default() -> VehicleParams:
     """
     Default Copa Truck parameters for bicycle model (2DOF).
 
-    Based on typical Brazilian Copa Truck specifications:
-    - Mercedes-Benz Actros platform
-    - ~600 kW diesel engine
-    - ~5000 kg race weight
+    Based on typical Brazilian Copa Truck racing specifications:
+    - Mercedes-Benz Actros racing platform
+    - ~850 kW diesel racing engine
+    - ~4500 kg racing weight
 
     References: Copa Truck technical regulations (2024).
     """
     return VehicleParams(
         mass_geometry=VehicleMassGeometry(
-            mass=5000.0,
+            mass=4500.0,
             lf=2.1,
             lr=2.3,
             wheelbase=4.4,
@@ -407,39 +455,40 @@ def copa_truck_2dof_default() -> VehicleParams:
             Iy=18000.0,
         ),
         tire=TireParams(
-            cornering_stiffness_front=120000.0,
-            cornering_stiffness_rear=120000.0,
-            friction_coefficient=1.1,
+            cornering_stiffness_front=135000.0,
+            cornering_stiffness_rear=135000.0,
+            friction_coefficient=1.62,
             wheel_radius=0.65,
         ),
         aero=AeroParams(
-            drag_coefficient=0.85,
+            drag_coefficient=0.80,
             frontal_area=8.7,
             lift_coefficient=0.0,
         ),
         engine=EngineParams(
-            max_power=600000.0,
-            max_torque=3700.0,
-            rpm_max=2800.0,
+            max_power=850000.0,
+            max_torque=4200.0,
+            rpm_max=3500.0,
             rpm_idle=800.0,
         ),
         transmission=TransmissionParams(
             num_gears=12,
             gear_ratios=[14.0, 10.5, 7.8, 5.9, 4.5, 3.5,
                          2.7, 2.1, 1.6, 1.25, 1.0, 0.78],
-            final_drive_ratio=5.33,
+            final_drive_ratio=4.0,
             shift_time=0.15,
         ),
         brake=BrakeParams(
             max_brake_force=50000.0,
             brake_balance=58.0,
-            max_deceleration=7.5,
+            max_deceleration=9.5,
         ),
         name="Copa Truck Default (2DOF)",
         manufacturer="Mercedes-Benz",
         year=2024,
         category="Truck",
     )
+
 
 
 def porsche_911_gt3_cup_991() -> VehicleParams:

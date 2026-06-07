@@ -1,5 +1,7 @@
 # LapTimeSimulator_CopaTruck
 
+> Motor A — Claude Code (GUI). Matriz completa em `AGENTS.md`.
+
 ## Context
 - Lap time simulator for Copa Truck — SARU Dynamics product
 - Technical partnership: Pérez (post-graduation)
@@ -8,6 +10,15 @@
 - Local path: `/media/hd_externo/01_Workspace/LapTimeSimulator_CopaTruck`
 
 > **This file (`CLAUDE.md`) is a living document** — update it whenever architecture, conventions, or sequences change.
+
+### Hooks Automaticos de Memoria
+- **Startup:** Ler `~/Documents/Obsidian/00_SYSTEM/hot.md` p/ contexto.
+- **Durante:** Atualizar `hot.md` + `LEARNINGS.md` + `.md` globais no mesmo turno.
+- **Stop/Handoff:** Consolidar `hot.md` + `HANDOFF-PROXIMA-SESSAO.md`.
+
+### AgentShield
+- CLI/scripts: sempre dry-run/`--help` antes de delegar a Vitor.
+- Scraping/credenciais/destrutivo: auditar vazamentos antes, isolar em dry-run.
 
 ---
 
@@ -162,3 +173,13 @@ perf:     performance improvement (solver speed, memory)
 3. **pytest must pass 100%** before any commit is proposed.
 4. **ABCs must be fully implemented** — no abstract method left unimplemented in subclasses.
 5. **Keep this file up to date** — when proposing structural changes, include a `CLAUDE.md` diff.
+
+---
+
+## Matriz de Motores (SSoT: AGENTS.md)
+
+| Motor | Agente | Uso |
+|-------|--------|-----|
+| A | Claude Code (GUI) | Tarefas Visuais/GUI, pesquisa profunda |
+| B | Antigravity CLI | Tarefas rapidas, execucao paralela |
+| C | OpenCode | Tarefas pesadas em lote, fallback |
