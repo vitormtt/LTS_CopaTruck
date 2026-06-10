@@ -40,6 +40,7 @@ last_updated: ""
 | Data | Decisão | Motivo |
 |------|---------|--------|
 | 2026-04-27 | Template v0.2.0 com routing modular | Reduzir tokens por sessão via lazy-load de rules |
+| 2026-06-10 | Implementação de baselines de regressão para o solver two-pass | Garantir convergência e integridade física de simulações |
 
 ---
 

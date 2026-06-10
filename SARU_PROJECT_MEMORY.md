@@ -55,8 +55,8 @@
 
 ### Regras Golden (do CLAUDE.md)
 - Nunca hardcode vehicle/track params — sempre via VehicleParams JSON ou HDF5
-- Nunca alterar two-pass solver sem cross-validation contra lap times conhecidos
-- pytest 100% antes de qualquer commit
+- Nunca alterar two-pass solver sem cross-validation contra lap times conhecidos (garantido via baselines em `tests/test_solver_regression.py`)
+- pytest 100% antes de qualquer commit (incluindo testes de regressão de solver)
 - ABCs totalmente implementadas
 
 ---

@@ -151,8 +151,11 @@ Sources: TUM FTM (`src/tracks/tumftm.py`), custom generators (`src/tracks/genera
 - `__init__.py` exports only the public interface
 
 ### Testing
-- `pytest tests/` must pass 100% before any commit
+- `python3 -m pytest` must pass 100% before any commit (includes unit and solver regression tests)
 - Unit tests per class in `tests/test_<module>.py`
+- Solver regression baselines checked by `tests/test_solver_regression.py`
+- To regenerate solver baselines (only after verified, cross-validated solver accuracy tuning):
+  `python3 tests/generate_regression_baselines.py`
 - Never push with failing tests
 
 ### Git — Conventional Commits

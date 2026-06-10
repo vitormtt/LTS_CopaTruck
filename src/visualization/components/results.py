@@ -17,6 +17,7 @@ import plotly.io as pio
 import matplotlib.pyplot as plt
 import streamlit as st
 from datetime import datetime
+from typing import Any
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
