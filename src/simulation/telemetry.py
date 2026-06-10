@@ -9,7 +9,7 @@ Date: 2026-06-06
 """
 import numpy as np
 import pandas as pd
-from src.simulation.lap_time_solver import SimulationResult
+from .lap_time_solver import SimulationResult
 
 
 class SimulationTelemetry:
@@ -42,22 +42,12 @@ class SimulationTelemetry:
             0.0
         )
 
-        # 3. Brake Speed (%/s) - time derivative of brake pedal position
+        # 3. Brake Speed (%/s) — time derivative of brake pedal position
         time_vals = self.df['lap_time_s'].values
-        dt = np.diff(time_vals)
-        # Protect against divide-by-zero
-        dt = np.where(dt > 1e-5, dt, 1e-5)
-        dt = np.append(dt, dt[-1])  # Pad last element to maintain shape
-        
-        brake_pct_vals = self.df['brake_pct'].values
-        # Gradient handles central differences
-        brake_diff = np.gradient(brake_pct_vals)
-        self.df['brake_speed'] = brake_diff / dt
+        self.df['brake_speed'] = np.gradient(self.df['brake_pct'].values, time_vals)
 
         # 4. Long G derivative (Jerk in g/s)
-        ax_long_vals = self.df['ax_long_g'].values
-        ax_diff = np.gradient(ax_long_vals)
-        self.df['jerk_long'] = ax_diff / dt
+        self.df['jerk_long'] = np.gradient(self.df['ax_long_g'].values, time_vals)
 
     def get_metrics(self) -> dict[str, float]:
         """

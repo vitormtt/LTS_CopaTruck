@@ -179,14 +179,8 @@ def load_telemetry(filepath: str | Path, delimiter: str = ",") -> pd.DataFrame:
     if df.shape[1] == 1:
         df = pd.read_csv(filepath, sep=";", engine="python", skip_blank_lines=True)
 
-    # Detect and convert g → m/s² for acceleration channels
+    # Input must be in m/s² — auto-conversion removed (threshold ambiguous for trucks ≤ 0.5 g)
     resolved = _resolve_columns(df)
-    for ch in ("long_g", "lat_g"):
-        col = resolved.get(ch)
-        if col and df[col].abs().max() < 5.0:
-            # Values < 5.0 are likely in g units → convert (trucks rarely exceed 0.5g ≈ 4.9 m/s²)
-            df[col] = df[col] * 9.81
-            warnings.warn(f"Column '{col}' converted from g to m/s²")
 
     # Normalise throttle 0–100 → 0–1
     throttle_col = resolved.get("throttle")
@@ -217,9 +211,14 @@ def align_on_distance(
     """
     resolved = _resolve_columns(real_df)
     dist_col = resolved.get("distance")
+    if dist_col is None:
+        raise ValueError(
+            "Real telemetry has no distance column. "
+            f"Expected one of: {_COLUMN_ALIASES['distance']}"
+        )
 
     sim_dist = np.array(sim_data["distance"])
-    d_max = min(sim_dist[-1], real_df[dist_col].max() if dist_col else sim_dist[-1])
+    d_max = min(sim_dist[-1], real_df[dist_col].max())
     d_grid = np.linspace(0.0, d_max, n_points)
 
     sim_aligned: Dict[str, np.ndarray] = {}
@@ -331,14 +330,19 @@ def compute_metrics(
     # Braking point detection (long_g < -8.0 m/s² threshold)
     sim_long = sim_al.get("long_g")
     real_long = real_al.get("long_g")
-    d_grid = np.linspace(0, 1, n_points)  # normalised placeholder
+    dist_col_cm = resolved.get("distance")
+    d_max_cm = float(
+        min(np.array(sim_data["distance"])[-1],
+            real_df[dist_col_cm].max() if dist_col_cm else np.array(sim_data["distance"])[-1])
+    )
+    dist_per_index = d_max_cm / n_points  # [m] per grid index
     if sim_long is not None and real_long is not None:
         brake_thresh = -8.0  # [m/s²]
         sim_bp = np.where(np.diff((sim_long < brake_thresh).astype(int)) > 0)[0]
         real_bp = np.where(np.diff((real_long < brake_thresh).astype(int)) > 0)[0]
         min_events = min(len(sim_bp), len(real_bp))
         if min_events > 0:
-            bp_errors = np.abs(sim_bp[:min_events] - real_bp[:min_events])
+            bp_errors = np.abs(sim_bp[:min_events] - real_bp[:min_events]) * dist_per_index
             metrics.mean_braking_point_error = float(np.mean(bp_errors))
 
     metrics.evaluate_pass()

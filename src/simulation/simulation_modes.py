@@ -94,6 +94,18 @@ class SimulationConfig:
     v0: float = 0.0
     lap_count: int = 1
 
+    def __post_init__(self) -> None:
+        """Sync lap_count → n_laps; lap_count is deprecated, n_laps is authoritative."""
+        if self.lap_count != self.n_laps:
+            import warnings
+            warnings.warn(
+                f"SimulationConfig: lap_count={self.lap_count} ignored; "
+                "use n_laps instead. lap_count will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self.lap_count = self.n_laps
+
     def is_qualifying(self) -> bool:
         return self.mode == SimulationMode.QUALIFYING
 

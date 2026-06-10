@@ -461,6 +461,10 @@ def _run_ggv_solver(
         dt_step      = ds[i] / max(v_profile[i], 0.1)
         temp_tyre[i] = temp_tyre[i - 1] + (dt_step / _TAU_TYRE) * (T_ideal - temp_tyre[i - 1])
 
+    # Forward loop writes [i-1]; fill last element explicitly
+    a_long[n - 1]      = a_long[n - 2]
+    rpm_profile[n - 1] = _get_rpm(v_profile[n - 1], gear_profile[n - 1], p)
+
     for i in reversed(range(n - 1)):
         v_next      = v_profile[i + 1]
         a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
@@ -574,6 +578,10 @@ def _run_standing_start(
         T_ideal      = 25.0 + 100.0 * min(a_combined / (2.0 * g), 1.0)
         dt_step      = ds[i] / max(v_profile[i], 0.1)
         temp_tyre[i] = temp_tyre[i - 1] + (dt_step / 50.0) * (T_ideal - temp_tyre[i - 1])
+
+    # Forward loop writes [i-1]; fill last element explicitly
+    a_long[n - 1]      = a_long[n - 2]
+    rpm_profile[n - 1] = _get_rpm(v_profile[n - 1], gear_profile[n - 1], p)
 
     for i in reversed(range(n - 1)):
         v_next      = v_profile[i + 1]
@@ -737,15 +745,17 @@ def run_bicycle_model(
     if mu_override is not None:
         vp.tire.friction_coefficient = float(mu_override)
 
+    temp_pneu_ini = config.get("temp_pneu_ini")
+    track_temp = config.get("track_temp", 35.0)
+    effective_track_temp = (temp_pneu_ini - 5.0) if temp_pneu_ini is not None else track_temp
+
     sim_config = SimulationConfig(
         mode=SimulationMode.QUALIFYING,
         setup=get_default_setup(),
-        track_temperature_c=config.get("track_temp", 35.0),
+        track_temperature_c=effective_track_temp,
         tyre_compound="slick_dry",
         export_driver_inputs=True,
     )
-    temp_pneu_ini = config.get("temp_pneu_ini", 65.0)
-    sim_config.track_temperature_c = temp_pneu_ini - 5.0
 
     result = run_simulation(
         config=sim_config,
