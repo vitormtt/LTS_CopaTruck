@@ -73,7 +73,8 @@ class _LegacyVehicleParams:
     track_width: float = 1.565
     fuel_per_km: float = 1.5
     speed_limit: float = 999.0
-
+    initial_fuel_l: float = 100.0
+    fuel_density: float = 0.85
 
     def __post_init__(self):
         if self.gear_ratios is None:
@@ -429,14 +430,24 @@ def _run_ggv_solver(
         F_traction  = T_engine * ratio_total / p.r_wheel
         F_drag      = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
         F_downforce = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
-        F_normal    = p.m * g + F_downforce
 
+        # Dynamic mass calculation
+        if i > 1:
+            fuel_acum[i - 1] = fuel_acum[i - 2] + (p.fuel_per_km / 1000.0) * ds[i - 1]
+        else:
+            fuel_acum[i - 1] = 0.0
+
+        m_fuel_initial = p.initial_fuel_l * p.fuel_density
+        fuel_burned_kg = fuel_acum[i - 1] * p.fuel_density
+        m_cur = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
+
+        F_normal    = m_cur * g + F_downforce
         a_lat_cur   = v_prev ** 2 / max(radius[i], 1.0)
-        F_lat_used  = p.m * a_lat_cur
+        F_lat_used  = m_cur * a_lat_cur
 
         # ARB load-sensitivity: grip penalty on the more loaded axle
         delta_fz_frac = np.clip(
-            p.m * a_lat_cur * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
+            m_cur * a_lat_cur * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
             0.0, 0.95
         )
         mu_eff = mu * (1.0 - _K_LS * delta_fz_frac)
@@ -445,7 +456,7 @@ def _run_ggv_solver(
         F_trac_grip = np.sqrt(max((mu_eff * F_normal) ** 2 - F_lat_used ** 2, 0.0))
         F_traction  = min(F_traction, F_trac_grip)
 
-        a = (F_traction - F_drag) / p.m
+        a = (F_traction - F_drag) / m_cur
         a_long[i - 1] = a
 
         if ds[i] > 0:
@@ -468,13 +479,22 @@ def _run_ggv_solver(
     for i in reversed(range(n - 1)):
         v_next      = v_profile[i + 1]
         a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
+
+        # Dynamic mass for backward pass
+        m_fuel_initial = p.initial_fuel_l * p.fuel_density
+        fuel_burned_kg = fuel_acum[i + 1] * p.fuel_density
+        m_cur_bw = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
+
         delta_fz_f  = np.clip(
-            p.m * a_lat_next * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
+            m_cur_bw * a_lat_next * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
             0.0, 0.95
         )
         mu_eff_bwd  = mu * (1.0 - _K_LS * delta_fz_f)
+
+        F_downforce_next = 0.5 * rho * abs(p.Cl) * p.A_front * v_next ** 2
+        F_normal_next    = m_cur_bw * g + F_downforce_next
         a_decel_max = min(
-            np.sqrt(max(0.0, (mu_eff_bwd * g) ** 2 - a_lat_next ** 2)),
+            np.sqrt(max(0.0, (mu_eff_bwd * F_normal_next / m_cur_bw) ** 2 - a_lat_next ** 2)),
             p.max_decel
         )
         if ds[i + 1] > 0:
@@ -550,7 +570,18 @@ def _run_standing_start(
         F_traction_e = T_engine * ratio_total / p.r_wheel
         F_drag       = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
         F_downforce  = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
-        F_normal     = p.m * g + F_downforce
+
+        # Dynamic mass calculation
+        if i > 1:
+            fuel_acum[i - 1] = fuel_acum[i - 2] + (p.fuel_per_km / 1000.0) * ds[i - 1]
+        else:
+            fuel_acum[i - 1] = 0.0
+
+        m_fuel_initial = p.initial_fuel_l * p.fuel_density
+        fuel_burned_kg = fuel_acum[i - 1] * p.fuel_density
+        m_cur = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
+
+        F_normal     = m_cur * g + F_downforce
 
         if launch_dist_accum < CLUTCH_RAMP_DIST:
             clutch_factor = launch_dist_accum / CLUTCH_RAMP_DIST
@@ -558,12 +589,12 @@ def _run_standing_start(
             F_traction    = min(F_traction_e, mu * F_normal * (1.0 - slip_limit))
         else:
             a_lat_cur   = v_prev ** 2 / max(radius[i], 1.0)
-            F_lat_used  = p.m * a_lat_cur
+            F_lat_used  = m_cur * a_lat_cur
             F_trac_grip = np.sqrt(max((mu * F_normal) ** 2 - F_lat_used ** 2, 0.0))
             F_traction  = min(F_traction_e, F_trac_grip)
 
         launch_dist_accum += ds[i]
-        a = (F_traction - F_drag) / p.m
+        a = (F_traction - F_drag) / m_cur
         a_long[i - 1] = a
 
         v_lat_max = np.sqrt(mu * g * radius[i])
@@ -586,7 +617,18 @@ def _run_standing_start(
     for i in reversed(range(n - 1)):
         v_next      = v_profile[i + 1]
         a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
-        a_decel_max = min(np.sqrt(max(0.0, (mu * g) ** 2 - a_lat_next ** 2)), p.max_decel)
+
+        # Dynamic mass for backward pass
+        m_fuel_initial = p.initial_fuel_l * p.fuel_density
+        fuel_burned_kg = fuel_acum[i + 1] * p.fuel_density
+        m_cur_bw = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
+
+        F_downforce_next = 0.5 * rho * abs(p.Cl) * p.A_front * v_next ** 2
+        F_normal_next    = m_cur_bw * g + F_downforce_next
+        a_decel_max = min(
+            np.sqrt(max(0.0, (mu * F_normal_next / m_cur_bw) ** 2 - a_lat_next ** 2)),
+            p.max_decel
+        )
         if ds[i + 1] > 0:
             v_profile[i] = min(v_profile[i], np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1]))
 
@@ -749,13 +791,22 @@ def run_bicycle_model(
     track_temp = config.get("track_temp", 35.0)
     effective_track_temp = (temp_pneu_ini - 5.0) if temp_pneu_ini is not None else track_temp
 
+    mode_str = config.get("mode", "qualifying")
+    if mode_str == "standing_start":
+        sim_mode = SimulationMode.STANDING_START
+    else:
+        sim_mode = SimulationMode.QUALIFYING
+
     sim_config = SimulationConfig(
-        mode=SimulationMode.QUALIFYING,
+        mode=sim_mode,
         setup=get_default_setup(),
         track_temperature_c=effective_track_temp,
         tyre_compound="slick_dry",
         export_driver_inputs=True,
     )
+    if sim_mode == SimulationMode.STANDING_START:
+        sim_config.launch_rpm = float(config.get("launch_rpm", 1500.0))
+        sim_config.wheelspin_limit_slip = float(config.get("wheelspin_limit", 0.15))
 
     result = run_simulation(
         config=sim_config,
@@ -777,4 +828,8 @@ def run_bicycle_model(
         "time":      result.time,
         "temp_pneu": result.temp_tyre_c,
         "consumo":   result.fuel_used_l,
+        "pressao_pneu": result.tyre_pressure_bar,
+        "throttle_pct": result.throttle_pct,
+        "brake_pct":    result.brake_pct,
+        "steering_deg": result.steering_deg,
     }

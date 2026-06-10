@@ -118,20 +118,7 @@ def load_hdf5(path: str) -> Tuple[Any, dict, dict]:
 @st.cache_data
 def load_interlagos_real() -> Tuple[Any, dict, dict]:
     """Build Interlagos real track profile and return plotting coordinate dict."""
-    circuit = build_interlagos_real(n_points=4000)
-    meta = {
-        "name": "Interlagos — GPS ref.",
-        "length": float(np.sum(np.sqrt(
-            np.diff(circuit.centerline_x)**2 +
-            np.diff(circuit.centerline_y)**2
-        ))),
-    }
-    plot_data = {
-        "x_c": circuit.centerline_x, "y_c": circuit.centerline_y,
-        "left_x": circuit.left_boundary_x, "left_y": circuit.left_boundary_y,
-        "right_x": circuit.right_boundary_x, "right_y": circuit.right_boundary_y,
-    }
-    return circuit, meta, plot_data
+    return load_hdf5(os.path.join(DATA_PATH, "interlagos.hdf5"))
 
 
 def init_session_state() -> None:
@@ -150,6 +137,11 @@ def init_session_state() -> None:
         "csv_path": None,
         "all_results": [],
         "params_saved": False,
+        "track_width_scale": 1.0,
+        "saved_track_width_scale": 1.0,
+        "track_grip_mult": 1.0,
+        "saved_track_grip_mult": 1.0,
+        "track_dirty": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:

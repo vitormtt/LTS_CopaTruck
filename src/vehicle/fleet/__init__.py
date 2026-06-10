@@ -5,7 +5,7 @@ Provides a unified interface to access any supported vehicle by ID,
 enabling multi-vehicle simulation and comparison workflows.
 
 Author: Lap Time Simulator Team
-Date: 2026-03-10
+Date: 2026-06-10
 """
 
 import json
@@ -13,17 +13,9 @@ from pathlib import Path
 from typing import Dict, Callable
 from ..parameters import VehicleParams
 
-from .porsche_gt3_991_1 import porsche_gt3_cup_991_1
-from .porsche_gt3_991_2 import porsche_gt3_cup_991_2
-from .porsche_gt3_992_1 import porsche_gt3_cup_992_1
 
-
-# Registry: vehicle_id -> factory function
-_FLEET_REGISTRY: Dict[str, Callable[[], VehicleParams]] = {
-    "porsche_991_1": porsche_gt3_cup_991_1,
-    "porsche_991_2": porsche_gt3_cup_991_2,
-    "porsche_992_1": porsche_gt3_cup_992_1,
-}
+# Registry: vehicle_id -> factory function (empty since Porsche is archived)
+_FLEET_REGISTRY: Dict[str, Callable[[], VehicleParams]] = {}
 
 # Dynamic loading of JSON models (Copa Truck presets)
 _JSON_MODELS_CACHE: Dict[str, VehicleParams] = {}
@@ -50,7 +42,7 @@ def get_vehicle_by_id(vehicle_id: str) -> VehicleParams:
     Retrieve a vehicle instance from the fleet registry.
 
     Args:
-        vehicle_id: Registry key (e.g., 'porsche_991_1', 'volkswagen_31320').
+        vehicle_id: Registry key (e.g., 'volkswagen_31320').
 
     Returns:
         VehicleParams instance with default setup applied.
@@ -95,8 +87,5 @@ __all__ = [
     "get_vehicle_by_id",
     "list_vehicles",
     "list_vehicle_ids",
-    "porsche_gt3_cup_991_1",
-    "porsche_gt3_cup_991_2",
-    "porsche_gt3_cup_992_1",
 ]
 

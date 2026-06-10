@@ -63,12 +63,7 @@ def main() -> None:
             "track_id": "interlagos",
             "mode": "qualifying"
         },
-        {
-            "id": "porsche_992_1_interlagos_qualifying",
-            "vehicle_id": "porsche_992_1",
-            "track_id": "interlagos",
-            "mode": "qualifying"
-        }
+
     ]
     
     baselines = {}

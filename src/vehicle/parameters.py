@@ -235,6 +235,7 @@ class VehicleParams:
 
     # Fuel consumption — used by telemetry accumulation in solver
     fuel_consumption_l_per_km: float = 1.5  # [L/km] typical average race pace
+    initial_fuel_l: float = 100.0            # [L] initial fuel load
 
     # Metadata
     name: str = "Unnamed Vehicle"
@@ -264,6 +265,8 @@ class VehicleParams:
             k_roll=data.get('k_roll', 230_000.0),
             k_roll_front=data.get('k_roll_front', 115_000.0),
             k_roll_rear=data.get('k_roll_rear', 115_000.0),
+            fuel_consumption_l_per_km=data.get('fuel_consumption_l_per_km', 1.5),
+            initial_fuel_l=data.get('initial_fuel_l', 100.0),
             name=data.get('name', 'Unnamed Vehicle'),
             manufacturer=data.get('manufacturer', ''),
             year=data.get('year', 0),
@@ -346,6 +349,7 @@ class VehicleParams:
 
             # --- Fuel model ---
             'fuel_per_km': self.fuel_consumption_l_per_km,
+            'initial_fuel_l': self.initial_fuel_l,
             'bsfc': 265.0 if self.category == 'GT3_Cup' else 210.0,  # g/kWh
             'fuel_density': 0.74 if self.category == 'GT3_Cup' else 0.85,  # kg/L
         }
@@ -386,6 +390,7 @@ class VehicleParams:
                 pacejka_C=data.get('pacejka_C', 1.3),
                 pacejka_D=data.get('pacejka_D', 1.0),
                 pacejka_E=data.get('pacejka_E', 0.97),
+                cold_pressure_bar=data.get('P_cold_bar', 1.8),
             ),
             aero=AeroParams(
                 drag_coefficient=data.get('Cx', 0.85),
@@ -419,6 +424,7 @@ class VehicleParams:
             k_roll_front=data.get('k_roll_front', 115_000.0),
             k_roll_rear=data.get('k_roll_rear', 115_000.0),
             fuel_consumption_l_per_km=data.get('fuel_per_km', 1.5),
+            initial_fuel_l=data.get('initial_fuel_l', 100.0),
             name=data.get('name', 'Unnamed Vehicle'),
             manufacturer=data.get('manufacturer', ''),
             year=data.get('year', 0),

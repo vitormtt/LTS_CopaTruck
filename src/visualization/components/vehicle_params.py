@@ -79,13 +79,13 @@ def parametros_veiculo_page() -> None:
         if st.radio("Enable parameter customization?", ["No", "Yes"], horizontal=True) == "Yes":
             sec = st.radio(
                 "Section:",
-                ["Mass/Geometry", "Tire", "Engine", "Transmission", "Brake", "Aerodynamics"],
+                ["Mass/Geometry", "Tire", "Engine", "Fuel", "Transmission", "Brake", "Aerodynamics"],
                 horizontal=True
             )
             
             if sec == "Mass/Geometry":
                 vp.mass_geometry.mass = st.number_input(
-                    "Race Mass (kg)", 3500.0, 9000.0, float(vp.mass_geometry.mass), step=50.0
+                    "Race Mass (kg)", 4950.0, 9000.0, max(float(vp.mass_geometry.mass), 4950.0), step=50.0
                 )
                 wb = st.number_input(
                     "Wheelbase (m)", 3.0, 5.5, float(vp.mass_geometry.wheelbase), step=0.05
@@ -103,6 +103,9 @@ def parametros_veiculo_page() -> None:
                 vp.tire.wheel_radius = st.number_input(
                     "Rolling Wheel Radius (m)", 0.3, 0.8, float(vp.tire.wheel_radius), step=0.01
                 )
+                vp.tire.cold_pressure_bar = st.number_input(
+                    "Cold Tyre Pressure (bar)", 1.0, 3.5, float(vp.tire.cold_pressure_bar), step=0.1
+                )
                 
             elif sec == "Engine":
                 vp.engine.max_power = st.number_input(
@@ -115,6 +118,14 @@ def parametros_veiculo_page() -> None:
                     "RPM Limit", 1500.0, 4000.0, float(vp.engine.rpm_max), step=100.0
                 )
                 
+            elif sec == "Fuel":
+                vp.initial_fuel_l = st.number_input(
+                    "Initial Fuel Load (L)", 0.0, 500.0, float(vp.initial_fuel_l), step=5.0
+                )
+                vp.fuel_consumption_l_per_km = st.number_input(
+                    "Fuel Consumption Rate (L/km)", 0.1, 5.0, float(vp.fuel_consumption_l_per_km), step=0.1
+                )
+
             elif sec == "Transmission":
                 vp.transmission.num_gears = st.slider(
                     "Number of Gears", 5, 16, int(vp.transmission.num_gears)
@@ -141,6 +152,9 @@ def parametros_veiculo_page() -> None:
 
         st.markdown("---")
         if st.button("💾 Save Truck Setup", use_container_width=True, type="primary"):
+            # Enforce regulatory mass of 4950 kg (vehicle + pilot)
+            if vp.mass_geometry.mass < 4950.0:
+                vp.mass_geometry.mass = 4950.0
             st.session_state.vehicle_params = vp
             st.session_state.setup = None
             st.session_state.confirmed_mode = "Copa Truck"
