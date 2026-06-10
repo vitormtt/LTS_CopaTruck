@@ -31,14 +31,14 @@ def simulacao_page() -> None:
     col_play, col_reset = st.columns(2)
     
     with col_reset:
-        if st.button("🗑️ Clear Results History", use_container_width=True):
+        if st.button("🗑️ Clear Results History", width="stretch"):
             st.session_state.resultados_prontos = False
             st.session_state.resultados = None
             st.session_state.all_results = []
             st.rerun()
 
     with col_play:
-        if st.button("▶ Run Simulation", use_container_width=True, type="primary"):
+        if st.button("▶ Run Simulation", width="stretch", type="primary"):
             with st.spinner("🔄 Running QSS solver (two-pass dynamic equations)..."):
                 # Build solver dictionary
                 params_dict = vp.to_solver_dict()

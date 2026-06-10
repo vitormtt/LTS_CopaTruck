@@ -220,7 +220,8 @@ def resultados_page() -> None:
     max_lat_g = float(np.max(np.abs(alat_g)))
     max_roll = float(np.max(np.abs(res.get('roll_angle_profile', [0]))))
     t_pneu_fim = float(res['temp_pneu'][-1])
-    p_pneu_fim = float(res['pressao_pneu'][-1])
+    p_pneu_arr = res.get('pressao_pneu', np.ones(len(dist)) * 2.0)
+    p_pneu_fim = float(p_pneu_arr[-1])
 
     # --- KPIs Panel ---
     st.subheader("🏁 Performance KPIs")
@@ -256,7 +257,7 @@ def resultados_page() -> None:
                     data=f,
                     file_name=f"Telemetry_{vp.name.replace(' ', '_')}_{datetime.now().strftime('%H%M%S')}.csv",
                     mime="text/csv",
-                    use_container_width=True
+                    width="stretch"
                 )
                 
     with col_pdf:
@@ -272,7 +273,7 @@ def resultados_page() -> None:
                     data=f,
                     file_name=f"Report_{vp.name.replace(' ', '_')}_{datetime.now().strftime('%H%M%S')}.pdf",
                     mime="application/pdf",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary"
                 )
             os.unlink(pdf_path)
@@ -281,7 +282,7 @@ def resultados_page() -> None:
             
     with col_html:
         # Placeholder / button for HTML dashboard compile
-        html_export_triggered = st.button("📄 Export Interactive HTML Report", use_container_width=True)
+        html_export_triggered = st.button("📄 Export Interactive HTML Report", width="stretch")
 
     st.markdown("---")
     
@@ -310,7 +311,7 @@ def resultados_page() -> None:
         height=500, margin=dict(l=0, r=0, t=35, b=0),
     )
     fig_map.update_yaxes(scaleanchor='x', scaleratio=1)
-    st.plotly_chart(fig_map, use_container_width=True)
+    st.plotly_chart(fig_map, width="stretch")
 
     st.markdown("---")
     st.subheader("📈 Dynamics Channels")
@@ -322,7 +323,7 @@ def resultados_page() -> None:
                                    name='Speed', line=dict(color='royalblue', width=2)))
         fig_v.update_layout(title='Speed Trace (km/h)', height=280,
                             margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_v, use_container_width=True)
+        st.plotly_chart(fig_v, width="stretch")
 
     with col_g2:
         fig_a = go.Figure()
@@ -332,7 +333,7 @@ def resultados_page() -> None:
                                    name='Long G', line=dict(color='seagreen', width=2)))
         fig_a.update_layout(title='Longitudinal & Lateral Accelerations (G)', height=280,
                             margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_a, use_container_width=True)
+        st.plotly_chart(fig_a, width="stretch")
 
     col_g3, col_g4 = st.columns(2)
     with col_g3:
@@ -344,16 +345,16 @@ def resultados_page() -> None:
                            annotation_text='Optimum Target')
         fig_temp.update_layout(title='Tyre Temperature (°C)', height=280,
                                margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_temp, use_container_width=True)
+        st.plotly_chart(fig_temp, width="stretch")
 
     with col_g4:
         fig_press = go.Figure()
-        fig_press.add_trace(go.Scatter(x=dist, y=res['pressao_pneu'], mode='lines',
+        fig_press.add_trace(go.Scatter(x=dist, y=p_pneu_arr, mode='lines',
                                        name='Tyre Press',
                                        line=dict(color='teal', width=2)))
         fig_press.update_layout(title='Tyre Pressure (bar)', height=280,
                                 margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_press, use_container_width=True)
+        st.plotly_chart(fig_press, width="stretch")
 
     col_g5, col_g6 = st.columns(2)
     with col_g5:
@@ -365,7 +366,7 @@ def resultados_page() -> None:
                                                                   width=1, dash='dot')))
         fig_rpm.update_layout(title='Engine RPM + Gear (×1000)', height=280,
                               margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_rpm, use_container_width=True)
+        st.plotly_chart(fig_rpm, width="stretch")
 
     with col_g6:
         fig_ggv = go.Figure()
@@ -380,7 +381,7 @@ def resultados_page() -> None:
             margin=dict(l=0, r=0, t=30, b=0),
         )
         fig_ggv.update_yaxes(scaleanchor='x', scaleratio=1)
-        st.plotly_chart(fig_ggv, use_container_width=True)
+        st.plotly_chart(fig_ggv, width="stretch")
 
     # --- Roll & Slip ---
     col_g7, col_g8 = st.columns(2)
@@ -392,7 +393,7 @@ def resultados_page() -> None:
                 name='Roll angle', line=dict(color='sienna', width=2)))
             fig_roll.update_layout(title='Cabin Roll Angle (°)', height=280,
                                    margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_roll, use_container_width=True)
+            st.plotly_chart(fig_roll, width="stretch")
     with col_g8:
         slip_data = res.get('front_slip_angle_deg', np.zeros(len(dist)))
         fig_slip = go.Figure()
@@ -401,7 +402,7 @@ def resultados_page() -> None:
             name='Slip angle', line=dict(color='darkviolet', width=2)))
         fig_slip.update_layout(title='Front Slip Angle (°)', height=280,
                                margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_slip, use_container_width=True)
+        st.plotly_chart(fig_slip, width="stretch")
 
     # --- Driver Inputs ---
     st.markdown("---")
@@ -422,7 +423,7 @@ def resultados_page() -> None:
             title='Throttle & Brake (%)', height=280,
             yaxis_title='%', xaxis_title='Distance (m)',
             margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_pedals, use_container_width=True)
+        st.plotly_chart(fig_pedals, width="stretch")
 
     with col_d2:
         fig_steer = go.Figure()
@@ -434,7 +435,7 @@ def resultados_page() -> None:
             title='Steering Angle (°)', height=280,
             yaxis_title='deg', xaxis_title='Distance (m)',
             margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_steer, use_container_width=True)
+        st.plotly_chart(fig_steer, width="stretch")
 
     # Sector Timing Tab
     st.markdown("---")
@@ -463,7 +464,7 @@ def resultados_page() -> None:
             "V max (km/h)": f"{v_max_s:.1f}",
         })
     if sector_rows:
-        st.dataframe(pd.DataFrame(sector_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(sector_rows), width="stretch")
 
     # Compile HTML report if requested
     if html_export_triggered:
@@ -485,5 +486,5 @@ def resultados_page() -> None:
             data="\n".join(html_parts),
             file_name=f"Interactive_Report_{datetime.now().strftime('%H%M%S')}.html",
             mime="text/html",
-            use_container_width=True
+            width="stretch"
         )

@@ -63,7 +63,7 @@ def batch_run_page() -> None:
 
     st.markdown("---")
     
-    if st.button("🚀 Run Batch Simulation", use_container_width=True, type="primary"):
+    if st.button("🚀 Run Batch Simulation", width="stretch", type="primary"):
         results_list = []
         progress_bar = st.progress(0, text="Initializing simulations...")
         
@@ -153,7 +153,7 @@ def batch_run_page() -> None:
             "Mean Speed (km/h)", "Fuel Consumed (L)", "Final Tyre Temp (°C)"
         ]].rename(columns={"Lap Time Formatted": "Lap Time"})
         
-        st.dataframe(df_display.style.highlight_min(subset=["Lap Time"], color="#2c7a40"), use_container_width=True)
+        st.dataframe(df_display.style.highlight_min(subset=["Lap Time"], color="#2c7a40"), width="stretch")
         
         # Bar chart comparison
         import plotly.express as px
@@ -166,4 +166,4 @@ def batch_run_page() -> None:
             title=f"Lap Time comparison on {st.session_state.circuit_meta['name']}"
         )
         fig.update_layout(yaxis_title="Lap Time (s)", showlegend=False, height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")

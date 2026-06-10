@@ -148,6 +148,6 @@ def pista_page() -> None:
         height=450
     )
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     
     st.success(f"✓ Circuit loaded: **{meta['name']}** | Length: **{meta['length']:.0f} m** | Grip factor: **{g_mult:.2f}x**")

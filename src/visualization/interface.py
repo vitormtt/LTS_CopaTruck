@@ -77,7 +77,7 @@ if st.session_state.circuit is None:
 elif st.session_state.vehicle_params is None or not st.session_state.params_saved:
     st.sidebar.warning("⚠️ Configure and save a vehicle in the 'Parameters' tab first.")
 else:
-    if st.sidebar.button("▶ Run Simulation", use_container_width=True, type="primary", key="global_sim_button"):
+    if st.sidebar.button("▶ Run Simulation", width="stretch", type="primary", key="global_sim_button"):
         with st.sidebar.spinner("🔄 Running QSS solver..."):
             vp = st.session_state.vehicle_params
             mode = st.session_state.get("confirmed_mode") or st.session_state.get("vehicle_mode", "Copa Truck")

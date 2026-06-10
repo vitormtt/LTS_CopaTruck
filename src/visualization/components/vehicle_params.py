@@ -151,7 +151,7 @@ def parametros_veiculo_page() -> None:
                 )
 
         st.markdown("---")
-        if st.button("💾 Save Truck Setup", use_container_width=True, type="primary"):
+        if st.button("💾 Save Truck Setup", width="stretch", type="primary"):
             # Enforce regulatory mass of 4950 kg (vehicle + pilot)
             if vp.mass_geometry.mass < 4950.0:
                 vp.mass_geometry.mass = 4950.0
@@ -197,7 +197,7 @@ def parametros_veiculo_page() -> None:
         col_i4.metric("Handling Balance", d['handling_balance'])
 
         st.markdown("---")
-        if st.button("💾 Save Setup & Parameters", use_container_width=True, type="primary"):
+        if st.button("💾 Save Setup & Parameters", width="stretch", type="primary"):
             params = apply_setup(vp, setup)
             st.session_state.vehicle_params = params
             st.session_state.setup = setup

@@ -168,4 +168,4 @@ def compare_page() -> None:
             margin=dict(l=0, r=0, t=35, b=0),
             hovermode="x unified"
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")

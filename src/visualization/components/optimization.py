@@ -63,7 +63,7 @@ def optimization_page() -> None:
         f"(ARB Front: {len(arb_f_vals)} × ARB Rear: {len(arb_r_vals)} × Wing: {len(wing_vals)})"
     )
 
-    if st.button("🚀 Run Setup Optimization Grid-Search", use_container_width=True, type="primary"):
+    if st.button("🚀 Run Setup Optimization Grid-Search", width="stretch", type="primary"):
         base = get_vehicle_by_id(st.session_state.vehicle_id)
         circuit = st.session_state.circuit
         results_opt = []
@@ -137,7 +137,7 @@ def optimization_page() -> None:
         top10 = valid_df.nsmallest(10, "lap_time").copy()
         top10["Lap Time"] = top10["lap_time"].apply(fmt_laptime)
         top10.columns = [c.replace("_", " ").title() for c in top10.columns]
-        st.dataframe(top10, use_container_width=True)
+        st.dataframe(top10, width="stretch")
 
         # Heatmaps — one per wing position
         st.subheader("🗺️ Lap-Time Sensitivity (ARB Front vs ARB Rear)")
@@ -163,4 +163,4 @@ def optimization_page() -> None:
                 height=350,
                 margin=dict(l=0, r=0, t=40, b=0),
             )
-            st.plotly_chart(fig_hm, use_container_width=True)
+            st.plotly_chart(fig_hm, width="stretch")
