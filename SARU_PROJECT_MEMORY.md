@@ -102,11 +102,12 @@
 
 ---
 
-## 7. Pendências / Riscos Abertos
+## 7. Pendências / Riscos Abertos (Audit 2026-06-07)
 
 - [ ] **Fase A2**: migrar para uv + Pydantic v2 + QSS + GGV + Drivetrain completo + Async API
 - [ ] Adicionar `LapTimeSimulator_Generic/` como submodule ou mover para repo separado (ambiguidade estrutural)
-- [ ] Params do Pérez (parceiro técnico) — bloqueio de frontend
+- [ ] **Bloqueio Externo (Pérez):** Params físicos reais do caminhão e especificações de customização do frontend. PROJETO PAUSADO.
+- [ ] **Risco Git (HASE):** A branch do `LapTimeSimulator_HASE` (derivado deste) divergiu. Necessário `git pull` limpo, renomear para `feature/hase-motorsport` e subir para o remote deste repositório pai. (Atribuído ao Agente Claude)
 
 ---
 
