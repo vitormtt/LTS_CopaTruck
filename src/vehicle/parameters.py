@@ -235,6 +235,20 @@ class BrakeParams:
     # (remainder goes to engine braking, drag and tyre scrub)
     disc_thermal_efficiency: float = 0.90  # [-]
 
+    # Disc thermal model (ENDURANCE_THERMAL mode) — defaults sized for a
+    # ~5 t race truck with vented cast-iron discs (Limpert 1999)
+    disc_mass_kg: float = 30.0                  # Per-disc mass [kg]
+    disc_specific_heat_j_per_kgk: float = 460.0  # Grey cast iron cp [J/(kg·K)]
+    disc_convection_w_per_m2k: float = 60.0      # Base convection h0 [W/(m²·K)]
+    disc_area_m2: float = 0.35                   # Cooling area per disc [m²]
+    disc_initial_temp_c: float = 60.0            # Disc temperature at lap start [°C]
+
+    # Pad fade band: friction degrades linearly from fade_onset to
+    # fade_full, bottoming out at fade_min_factor of the cold capacity
+    fade_onset_temp_c: float = 450.0
+    fade_full_temp_c: float = 800.0
+    fade_min_factor: float = 0.5
+
 
 @dataclass
 class VehicleParams:
@@ -372,6 +386,15 @@ class VehicleParams:
             'brake_balance': self.brake.brake_balance,
             'max_brake_force': self.brake.max_brake_force,
             'abs_slip_target': self.brake.abs_slip_target,
+            'disc_thermal_efficiency': self.brake.disc_thermal_efficiency,
+            'disc_mass_kg': self.brake.disc_mass_kg,
+            'disc_specific_heat': self.brake.disc_specific_heat_j_per_kgk,
+            'disc_convection': self.brake.disc_convection_w_per_m2k,
+            'disc_area_m2': self.brake.disc_area_m2,
+            'disc_initial_temp_c': self.brake.disc_initial_temp_c,
+            'fade_onset_temp_c': self.brake.fade_onset_temp_c,
+            'fade_full_temp_c': self.brake.fade_full_temp_c,
+            'fade_min_factor': self.brake.fade_min_factor,
 
             # --- Aerodynamics ---
             'Cx': self.aero.drag_coefficient,
@@ -452,6 +475,14 @@ class VehicleParams:
                 max_deceleration=data.get('max_decel', 7.5),
                 abs_slip_target=data.get('abs_slip_target', 0.15),
                 disc_thermal_efficiency=data.get('disc_thermal_efficiency', 0.90),
+                disc_mass_kg=data.get('disc_mass_kg', 30.0),
+                disc_specific_heat_j_per_kgk=data.get('disc_specific_heat', 460.0),
+                disc_convection_w_per_m2k=data.get('disc_convection', 60.0),
+                disc_area_m2=data.get('disc_area_m2', 0.35),
+                disc_initial_temp_c=data.get('disc_initial_temp_c', 60.0),
+                fade_onset_temp_c=data.get('fade_onset_temp_c', 450.0),
+                fade_full_temp_c=data.get('fade_full_temp_c', 800.0),
+                fade_min_factor=data.get('fade_min_factor', 0.5),
             ),
             k_roll=data.get('k_roll', 230_000.0),
             k_roll_front=data.get('k_roll_front', 115_000.0),
