@@ -195,6 +195,13 @@ class TransmissionParams:
     downshift_rpm: float = 0.0          # RPM threshold for downshift [rev/min]
     transmission_efficiency: float = 0.95  # Drivetrain efficiency [-]
 
+    def __post_init__(self):
+        if len(self.gear_ratios) != self.num_gears:
+            raise ValueError(
+                f"gear_ratios length ({len(self.gear_ratios)}) "
+                f"!= num_gears ({self.num_gears})"
+            )
+
 
 @dataclass
 class BrakeParams:
@@ -210,6 +217,10 @@ class BrakeParams:
 
     abs_enabled: bool = False
     abs_slip_target: float = 0.15  # Target slip ratio for ABS [-]
+
+    # Fraction of dissipated kinetic energy absorbed by the discs
+    # (remainder goes to engine braking, drag and tyre scrub)
+    disc_thermal_efficiency: float = 0.90  # [-]
 
 
 @dataclass
@@ -340,6 +351,7 @@ class VehicleParams:
             # --- Brakes ---
             'max_decel': self.brake.max_deceleration,
             'brake_balance': self.brake.brake_balance,
+            'max_brake_force': self.brake.max_brake_force,
             'abs_slip_target': self.brake.abs_slip_target,
 
             # --- Aerodynamics ---
@@ -419,6 +431,7 @@ class VehicleParams:
                 brake_balance=data.get('brake_balance', 58.0),
                 max_deceleration=data.get('max_decel', 7.5),
                 abs_slip_target=data.get('abs_slip_target', 0.15),
+                disc_thermal_efficiency=data.get('disc_thermal_efficiency', 0.90),
             ),
             k_roll=data.get('k_roll', 230_000.0),
             k_roll_front=data.get('k_roll_front', 115_000.0),
