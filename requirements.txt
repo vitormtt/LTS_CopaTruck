@@ -10,3 +10,4 @@ scikit-learn>=1.4.0
 seaborn>=0.13.0
 pytest>=8.1.0
 reportlab>=4.1.0
+libxrk>=0.12.0  # AiM .xrk telemetry parsing (Perez-data)
