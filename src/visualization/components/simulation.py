@@ -65,9 +65,13 @@ def simulacao_page() -> None:
                 params_dict = vp.to_solver_dict()
                 params_dict.setdefault("track_width", 2.5)
 
-                # Trucks don't use gears 1-3 at racing speed
-                gear_min = 4
-                solver_config = {"gear_min": gear_min, "mode": sim_mode_key}
+                # Track grip multiplier scales the tyre friction coefficient
+                grip_mult = float(getattr(st.session_state.circuit,
+                                          "grip_multiplier", 1.0))
+                solver_config = {
+                    "mode": sim_mode_key,
+                    "coef_aderencia": vp.tire.friction_coefficient * grip_mult,
+                }
                 if sim_mode_key == "endurance_thermal":
                     solver_config["ambient_temp_c"] = float(ambient_temp_c)
                 elif sim_mode_key == "standing_start":

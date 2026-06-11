@@ -79,18 +79,17 @@ def batch_run_page() -> None:
             params_dict = vp.to_solver_dict()
             params_dict.setdefault("track_width", 2.5)
             
-            is_truck = vp.category == "Truck" or "truck" in vp.name.lower()
-            gear_min = 4 if is_truck else 1
-            
+            # Track grip multiplier scales the tyre friction coefficient
+            grip_mult = float(getattr(st.session_state.circuit, "grip_multiplier", 1.0))
+
             # Formulate solver configuration
             mode_key = "standing_start" if "Standing Start" in sim_mode else "qualifying"
             solver_config = {
                 "mode": mode_key,
-                "gear_min": gear_min,
-                "coef_aderencia": vp.tire.friction_coefficient
+                "coef_aderencia": vp.tire.friction_coefficient * grip_mult,
             }
             if mode_key == "standing_start":
-                solver_config["launch_rpm"] = 1500.0 if is_truck else 5000.0
+                solver_config["launch_rpm"] = 1500.0  # diesel truck launch
                 solver_config["wheelspin_limit"] = 0.15
                 
             try:

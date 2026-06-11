@@ -33,7 +33,10 @@ def optimization_page() -> None:
 
     st.caption(
         "Grid-search over ARB front, ARB rear, and Wing position to find the "
-        "optimum setup combination for this track. Tyre pressure and brake bias are kept constant."
+        "optimum setup combination for this track. Tyre pressure and brake bias "
+        "are kept constant. ARB levels map to roll stiffness (k_roll front/rear) "
+        "and wing positions to aero deltas (ΔCd/ΔCl) applied on top of the "
+        "selected truck's baseline parameters."
     )
 
     col_p1, col_p2 = st.columns(2)
@@ -88,13 +91,16 @@ def optimization_page() -> None:
             )
             params = apply_setup(base, setup)
             params_dict = params.to_solver_dict()
+            # apply_setup already folded the pressure-dependent grip
+            # scaling into mu/Cf/Cr; reset the exported cold pressure to
+            # the reference so the legacy path doesn't re-apply the delta
+            params_dict["P_cold_bar"] = 1.8
 
             try:
-                # Trucks don't use gears 1-3 at racing speed
                 r = cached_solver(
                     params_dict=params_dict,
                     circuit=circuit,
-                    config={"gear_min": 4},
+                    config={},
                     save_csv=False
                 )
                 results_opt.append({
