@@ -78,8 +78,7 @@ def test_solver_regression(case_id: str) -> None:
         sim_config = SimulationConfig.qualifying(track_id=track_id)
     elif mode == "standing_start":
         sim_config = SimulationConfig.standing_start(track_id=track_id)
-        if "porsche" not in vehicle_id:
-            sim_config.launch_rpm = 1500.0  # Diesel truck launch RPM
+        sim_config.launch_rpm = 1500.0  # Diesel truck launch RPM
     else:
         pytest.fail(f"Unknown mode: {mode}")
         
