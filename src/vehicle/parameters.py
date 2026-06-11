@@ -122,6 +122,10 @@ class EngineParams:
     rpm_idle: float            # Idle RPM [rev/min]
     rpm_redline: float = 0.0   # Redline RPM (if different from max) [rev/min]
 
+    # Brake-specific fuel consumption at high load [g/kWh]
+    # Typical modern heavy-duty racing diesel: 195-215 (Heywood 2018)
+    bsfc_g_per_kwh: float = 210.0
+
     # Torque curve (for nonlinear powertrain models)
     torque_curve_rpm: List[float] = field(default_factory=list)  # [rev/min]
     torque_curve_nm: List[float] = field(default_factory=list)   # [N·m]
@@ -244,9 +248,14 @@ class VehicleParams:
     k_roll_front: float = 115_000.0
     k_roll_rear: float = 115_000.0
 
-    # Fuel consumption — used by telemetry accumulation in solver
-    fuel_consumption_l_per_km: float = 1.5  # [L/km] typical average race pace
+    # Fuel model
+    # fuel_consumption_l_per_km is DEPRECATED as a solver input: fuel is
+    # now computed dynamically from BSFC x instantaneous power x dt. The
+    # field is kept for backward compatibility of serialized presets and
+    # as a reporting reference only.
+    fuel_consumption_l_per_km: float = 1.5   # [L/km] legacy, output-only
     initial_fuel_l: float = 100.0            # [L] initial fuel load
+    fuel_density_kg_per_l: float = 0.85      # [kg/L] diesel
 
     # Metadata
     name: str = "Unnamed Vehicle"
@@ -278,6 +287,7 @@ class VehicleParams:
             k_roll_rear=data.get('k_roll_rear', 115_000.0),
             fuel_consumption_l_per_km=data.get('fuel_consumption_l_per_km', 1.5),
             initial_fuel_l=data.get('initial_fuel_l', 100.0),
+            fuel_density_kg_per_l=data.get('fuel_density_kg_per_l', 0.85),
             name=data.get('name', 'Unnamed Vehicle'),
             manufacturer=data.get('manufacturer', ''),
             year=data.get('year', 0),
@@ -360,10 +370,10 @@ class VehicleParams:
             'Cl': self.aero.lift_coefficient,
 
             # --- Fuel model ---
-            'fuel_per_km': self.fuel_consumption_l_per_km,
+            'fuel_per_km': self.fuel_consumption_l_per_km,  # legacy, unused by solver
             'initial_fuel_l': self.initial_fuel_l,
-            'bsfc': 210.0,        # g/kWh — heavy-duty diesel at high load
-            'fuel_density': 0.85,  # kg/L — diesel
+            'bsfc': self.engine.bsfc_g_per_kwh,
+            'fuel_density': self.fuel_density_kg_per_l,
         }
 
     @classmethod
@@ -414,6 +424,7 @@ class VehicleParams:
                 max_torque=data.get('T_max', 3700.0),
                 rpm_max=data.get('rpm_max', 2800.0),
                 rpm_idle=data.get('rpm_idle', 800.0),
+                bsfc_g_per_kwh=data.get('bsfc', 210.0),
                 torque_curve_rpm=data.get('torque_curve_rpm', []),
                 torque_curve_nm=data.get('torque_curve_nm', []),
             ),
@@ -438,6 +449,7 @@ class VehicleParams:
             k_roll_rear=data.get('k_roll_rear', 115_000.0),
             fuel_consumption_l_per_km=data.get('fuel_per_km', 1.5),
             initial_fuel_l=data.get('initial_fuel_l', 100.0),
+            fuel_density_kg_per_l=data.get('fuel_density', 0.85),
             name=data.get('name', 'Unnamed Vehicle'),
             manufacturer=data.get('manufacturer', ''),
             year=data.get('year', 0),
