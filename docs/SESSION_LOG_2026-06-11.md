@@ -35,9 +35,9 @@
 
 | Stream | Branch | Status |
 |--------|--------|--------|
-| 1. Física v2 (bugs B1-B6 + params vivos + quasi-static load transfer) | `feature/physics-v2` | EM EXECUÇÃO |
-| 2. Arquitetura (arquivar mortos, validate na UI, libxrk, scripts) | `feature/architecture-consolidation` | EM EXECUÇÃO |
-| 3. Aprendizado (pesquisa LTS, calibração .xrk, sensibilidade, otimizador DE) | `feature/learning-calibration` | EM EXECUÇÃO |
+| 1. Física v2 (bugs B1-B6 + params vivos + quasi-static load transfer) | `feature/physics-v2` | ✅ MERGED (98 testes) |
+| 2. Arquitetura (arquivar mortos, validate no fleet, libxrk, scripts) | `feature/architecture-consolidation` | ✅ MERGED |
+| 3. Aprendizado (pesquisa LTS, calibração .xrk, sensibilidade, otimizador DE) | `feature/learning-calibration` | ✅ MERGED (100 testes) |
 
 Ordem de merge: 1 → 2 → 3 (baselines regenerados APENAS no stream 1 e na
 consolidação final; streams 2/3 não regeneram).
@@ -50,7 +50,16 @@ consolidação final; streams 2/3 não regeneram).
 
 ## Pendências pós-merge (executor: sessão principal)
 
-- [ ] Regenerar baselines finais + evidência de cross-validation
-- [ ] Resample de Interlagos (862 pts ≈ 5 m → ~1 m) + revalidação
-- [ ] Atualizar CLAUDE.md (Golden Rule 5)
-- [ ] Relatório final ao Vitor
+- [x] Baselines regenerados (física v2) com evidência no commit
+- [x] Resample de Interlagos AVALIADO E REJEITADO: a spline cúbica em
+      862 pts amplifica ruído de curvatura (+4 s/volta) — caminho certo é
+      recapturar o centerline dos GPS dos .xrk (ver docs/LTS_RESEARCH.md §5)
+- [x] Calibração v2: S_LOAD=0.12, presets mu 1.58-1.63 / Cx 0.68-0.72 /
+      bias 60% / ABS on / massa 4500 kg (mínimo regulamentar A CONFIRMAR
+      com o Pérez — o piso de 4950 kg da UI era inconsistente e foi alinhado)
+- [x] Standing start corrigido: era MAIS RÁPIDO que qualifying (mu sem
+      penalidade); agora +7.6 s, fisicamente correto
+- [x] CLAUDE.md atualizado
+- [x] Relatório final ao Vitor
+- [ ] PRÓXIMO: pip install libxrk (local) → converter .xrk → calibração
+      cross-track Interlagos↔Cascavel → fator piloto via GG realizado
