@@ -213,9 +213,16 @@ def parametros_veiculo_page() -> None:
             )
 
     with st.expander("⛽ Fuel"):
-        vp.fuel_consumption_l_per_km = st.number_input(
-            "Fuel Consumption Rate (L/km)", 0.1, 5.0,
-            float(vp.fuel_consumption_l_per_km), step=0.1, key="vp_fuel_rate"
+        vp.engine.bsfc_g_per_kwh = st.number_input(
+            "BSFC (g/kWh)", 150.0, 350.0, float(vp.engine.bsfc_g_per_kwh),
+            step=5.0, key="vp_bsfc",
+            help="Brake-specific fuel consumption at high load. Fuel use "
+                 "is computed dynamically as BSFC × instantaneous power × dt; "
+                 "the resulting consumption (L and L/km) is shown in Results."
+        )
+        vp.fuel_density_kg_per_l = st.number_input(
+            "Fuel Density (kg/L)", 0.70, 0.90, float(vp.fuel_density_kg_per_l),
+            step=0.01, key="vp_fuel_density"
         )
 
     with st.expander("⚙️ Transmission"):

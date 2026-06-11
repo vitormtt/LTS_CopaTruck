@@ -67,6 +67,7 @@ class _LegacyVehicleParams:
     max_decel: float = 7.5
     brake_balance: float = 58.0
     max_brake_force: float = 50000.0
+    bsfc: float = 210.0
     Cx: float = 0.85
     A_front: float = 8.7
     Cl: float = 0.0
@@ -377,6 +378,41 @@ def _steering_from_radius(
     return delta_deg
 
 
+def _fuel_step(
+    power_w: float,
+    dt: float,
+    bsfc: float,
+    fuel_density: float,
+) -> float:
+    """
+    Fuel burned over one solver step from BSFC and instantaneous power.
+
+    Mirrors ICEEngine.get_fuel_consumption() in src/vehicle/engine.py
+    (single source of truth for the formula):
+
+        fuel_kg = bsfc [g/kWh] * P [kW] * dt [h] / 1000
+        fuel_L  = fuel_kg / fuel_density
+
+    Zero power (coasting/braking with overrun fuel cut) burns no fuel.
+    ``dt`` is clamped to 2.0 s per step so the near-zero speeds of a
+    standing-start launch cannot produce a spurious fuel spike.
+
+    Args:
+        power_w: Delivered engine power [W] (>= 0).
+        dt: Step duration [s].
+        bsfc: Brake-specific fuel consumption [g/kWh].
+        fuel_density: Fuel density [kg/L].
+
+    Returns:
+        Fuel burned in this step [L].
+    """
+    if power_w <= 0.0:
+        return 0.0
+    dt_clamped = min(dt, 2.0)
+    fuel_kg = bsfc * (power_w / 1000.0) * (dt_clamped / 3600.0) / 1000.0
+    return fuel_kg / fuel_density
+
+
 def _bias_limited_decel(
     p: _LegacyVehicleParams,
     mu_eff: float,
@@ -480,12 +516,8 @@ def _run_ggv_solver(
         F_drag      = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
         F_downforce = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
 
-        # Dynamic mass calculation
-        if i > 1:
-            fuel_acum[i - 1] = fuel_acum[i - 2] + (p.fuel_per_km / 1000.0) * ds[i - 1]
-        else:
-            fuel_acum[i - 1] = 0.0
-
+        # Dynamic mass (fuel_acum[i-1] is the provisional forward-pass
+        # estimate; the time-integration loop recomputes it exactly)
         m_fuel_initial = p.initial_fuel_l * p.fuel_density
         fuel_burned_kg = fuel_acum[i - 1] * p.fuel_density
         m_cur = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
@@ -521,6 +553,13 @@ def _run_ggv_solver(
         dt_step      = ds[i] / max(v_profile[i], 0.1)
         temp_tyre[i] = temp_tyre[i - 1] + (dt_step / _TAU_TYRE) * (T_ideal - temp_tyre[i - 1])
 
+        # Provisional fuel from BSFC x delivered power (forward-pass
+        # estimate used by the dynamic-mass terms above)
+        P_engine = max(F_traction, 0.0) * v_prev
+        fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
+            P_engine, dt_step, p.bsfc, p.fuel_density
+        )
+
     # Forward loop writes [i-1]; fill last element explicitly
     a_long[n - 1]      = a_long[n - 2]
     rpm_profile[n - 1] = _get_rpm(v_profile[n - 1], gear_profile[n - 1], p)
@@ -552,13 +591,26 @@ def _run_ggv_solver(
             v_profile[i]  = min(v_profile[i], v_brake_limit)
 
     time_profile = np.zeros(n)
+    m_fuel_initial = p.initial_fuel_l * p.fuel_density
 
     for i in range(n):
         a_lat[i] = v_profile[i] ** 2 / max(radius[i], 1.0)
         if i > 0 and v_profile[i] > 0:
             dt = ds[i] / v_profile[i]
             time_profile[i] = time_profile[i - 1] + dt
-            fuel_acum[i]    = fuel_acum[i - 1] + (p.fuel_per_km / 1000.0) * ds[i]
+
+            # Authoritative fuel: delivered power reconstructed from the
+            # final speed profile (zero in braking/coasting zones)
+            v_prev_t = v_profile[i - 1]
+            a_actual = ((v_profile[i] ** 2 - v_prev_t ** 2) / (2.0 * ds[i])
+                        if ds[i] > 0 else 0.0)
+            m_cur_t = p.m + max(m_fuel_initial - fuel_acum[i - 1] * p.fuel_density, 0.0)
+            F_drag_t = 0.5 * rho * p.Cx * p.A_front * v_prev_t ** 2
+            F_engine = m_cur_t * a_actual + F_drag_t
+            P_engine = min(max(F_engine, 0.0) * max(v_prev_t, 0.0), p.P_max)
+            fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
+                P_engine, dt, p.bsfc, p.fuel_density
+            )
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
@@ -621,12 +673,8 @@ def _run_standing_start(
         F_drag       = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
         F_downforce  = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
 
-        # Dynamic mass calculation
-        if i > 1:
-            fuel_acum[i - 1] = fuel_acum[i - 2] + (p.fuel_per_km / 1000.0) * ds[i - 1]
-        else:
-            fuel_acum[i - 1] = 0.0
-
+        # Dynamic mass (fuel_acum[i-1] is the provisional forward-pass
+        # estimate; the time-integration loop recomputes it exactly)
         m_fuel_initial = p.initial_fuel_l * p.fuel_density
         fuel_burned_kg = fuel_acum[i - 1] * p.fuel_density
         m_cur = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
@@ -660,6 +708,13 @@ def _run_standing_start(
         dt_step      = ds[i] / max(v_profile[i], 0.1)
         temp_tyre[i] = temp_tyre[i - 1] + (dt_step / 50.0) * (T_ideal - temp_tyre[i - 1])
 
+        # Provisional fuel from BSFC x delivered power (forward-pass
+        # estimate used by the dynamic-mass terms above)
+        P_engine = max(F_traction, 0.0) * v_prev
+        fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
+            P_engine, dt_step, p.bsfc, p.fuel_density
+        )
+
     # Forward loop writes [i-1]; fill last element explicitly
     a_long[n - 1]      = a_long[n - 2]
     rpm_profile[n - 1] = _get_rpm(v_profile[n - 1], gear_profile[n - 1], p)
@@ -684,12 +739,26 @@ def _run_standing_start(
             v_profile[i] = min(v_profile[i], np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1]))
 
     time_profile = np.zeros(n)
+    m_fuel_initial = p.initial_fuel_l * p.fuel_density
+
     for i in range(n):
         a_lat[i] = v_profile[i] ** 2 / max(radius[i], 1.0)
         if i > 0 and v_profile[i] > 0:
             dt = ds[i] / v_profile[i]
             time_profile[i] = time_profile[i - 1] + dt
-            fuel_acum[i]    = fuel_acum[i - 1] + (p.fuel_per_km / 1000.0) * ds[i]
+
+            # Authoritative fuel: delivered power reconstructed from the
+            # final speed profile (zero in braking/coasting zones)
+            v_prev_t = v_profile[i - 1]
+            a_actual = ((v_profile[i] ** 2 - v_prev_t ** 2) / (2.0 * ds[i])
+                        if ds[i] > 0 else 0.0)
+            m_cur_t = p.m + max(m_fuel_initial - fuel_acum[i - 1] * p.fuel_density, 0.0)
+            F_drag_t = 0.5 * rho * p.Cx * p.A_front * v_prev_t ** 2
+            F_engine = m_cur_t * a_actual + F_drag_t
+            P_engine = min(max(F_engine, 0.0) * max(v_prev_t, 0.0), p.P_max)
+            fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
+                P_engine, dt, p.bsfc, p.fuel_density
+            )
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
