@@ -41,7 +41,7 @@ PAGES = {
 
 # App-wide layout configuration
 st.set_page_config(
-    page_title="LapTimeSimulator — Copa Truck / GT3",
+    page_title="LapTimeSimulator — Copa Truck",
     layout="wide",
     page_icon="🏁"
 )
@@ -54,7 +54,7 @@ if "page" not in st.session_state:
 
 # Sidebar navigation menu
 st.sidebar.title("🏁 LapTimeSimulator")
-st.sidebar.caption("Copa Truck | Porsche GT3 Cup")
+st.sidebar.caption("Copa Truck")
 
 page_list = list(PAGES.keys())
 try:
@@ -80,12 +80,11 @@ else:
     if st.sidebar.button("▶ Run Simulation", width="stretch", type="primary", key="global_sim_button"):
         with st.sidebar.spinner("🔄 Running QSS solver..."):
             vp = st.session_state.vehicle_params
-            mode = st.session_state.get("confirmed_mode") or st.session_state.get("vehicle_mode", "Copa Truck")
             params_dict = vp.to_solver_dict()
             params_dict.setdefault("track_width", 2.5)
 
-            # Set minimum gear limit based on vehicle type (Trucks don't use gears 1-3 on racing speed)
-            gear_min = 1 if mode == "Porsche GT3 Cup" else 4
+            # Trucks don't use gears 1-3 at racing speed
+            gear_min = 4
             solver_config = {"gear_min": gear_min}
 
             # Construct result filepath

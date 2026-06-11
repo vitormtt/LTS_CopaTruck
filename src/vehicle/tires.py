@@ -87,7 +87,7 @@ class ThermalPacejkaTire(PacejkaTire):
         self.P_cold = config.get('P_cold_bar', 1.8)
 
         # Constantes Térmicas — configurable per vehicle category
-        # GT3 Cup tyre: ~12 kg, cp ~1100 J/kg·K, cooling area ~0.5 m²
+        # Light racecar tyre: ~12 kg, cp ~1100 J/kg·K, cooling area ~0.5 m²
         # Copa Truck tyre: ~60 kg, cp ~1200 J/kg·K, cooling area ~1.5 m²
         self.mass_tire = config.get('tyre_mass_kg', 12.0)
         self.c_p = config.get('tyre_cp', 1100.0)
