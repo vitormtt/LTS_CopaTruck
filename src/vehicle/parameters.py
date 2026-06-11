@@ -141,6 +141,15 @@ class EngineParams:
         if self.torque_curve_nm is None:
             self.torque_curve_nm = []
 
+        if len(self.torque_curve_rpm) != len(self.torque_curve_nm):
+            raise ValueError(
+                f"torque_curve_rpm length ({len(self.torque_curve_rpm)}) "
+                f"!= torque_curve_nm length ({len(self.torque_curve_nm)})"
+            )
+        if any(b <= a for a, b in zip(self.torque_curve_rpm,
+                                      self.torque_curve_rpm[1:])):
+            raise ValueError("torque_curve_rpm must be strictly increasing")
+
         if len(self.torque_curve_rpm) == 0:
             is_truck = (self.rpm_max < 3500.0) or (self.max_torque > 1500.0)
             
