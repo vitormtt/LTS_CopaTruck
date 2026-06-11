@@ -1,13 +1,34 @@
 # LapTimeSimulator_CopaTruck
 
+<!-- SARU-DOC-SYNC:START (gerado por saru-doc-sync.sh — NAO duplicar regras globais aqui) -->
+> **Regras globais (operador):** `~/.claude/CLAUDE.md` — fonte unica (versao vigente no proprio arquivo). NAO duplicar aqui.
+> **Memoria global SARU:** `/home/vitor/Projects/01_Workspace/SARU_GLOBAL_MEMORY.md`
+> **Memoria deste repo:** `SARU_PROJECT_MEMORY.md`
+> **Git Flow:** `main` (release) + `develop` (integracao) + `feature/*`. Merge `--no-ff`. Sem PR.
+<!-- SARU-DOC-SYNC:END -->
+
+
+
+
+> Motor A — Claude Code (GUI). Matriz completa em `AGENTS.md`.
+
 ## Context
 - Lap time simulator for Copa Truck — SARU Dynamics product
 - Technical partnership: Pérez (post-graduation)
 - Stack: Python 3.x, Streamlit, NumPy, SciPy, HDF5
 - GitHub: vitormtt/LapTimeSimulator_CopaTruck
-- Local path: `C:\Users\vitor\OneDrive\Desktop\Pastas\LapTimeSimulator_V2`
+- Local path: `/home/vitor/Projects/01_Workspace/LapTimeSimulator_CopaTruck`
 
 > **This file (`CLAUDE.md`) is a living document** — update it whenever architecture, conventions, or sequences change.
+
+### Hooks Automaticos de Memoria
+- **Startup:** Ler `~/Documents/Obsidian/00_SYSTEM/hot.md` p/ contexto.
+- **Durante:** Atualizar `hot.md` + `LEARNINGS.md` + `.md` globais no mesmo turno.
+- **Stop/Handoff:** Consolidar `hot.md` + `HANDOFF-PROXIMA-SESSAO.md`.
+
+### AgentShield
+- CLI/scripts: sempre dry-run/`--help` antes de delegar a Vitor.
+- Scraping/credenciais/destrutivo: auditar vazamentos antes, isolar em dry-run.
 
 ---
 
@@ -37,9 +58,18 @@ LapTimeSimulator_CopaTruck/
 **Bicycle Model 2DOF** with extensions:
 - Lateral dynamics: cornering forces (Cf, Cr)
 - Longitudinal dynamics: traction limited by grip + aerodynamic drag
-- Engine: realistic torque curve (diesel peak ~1300 RPM)
+- Engine: realistic torque curve (diesel peak ~1300 RPM); per-model
+  default curves in `data/vehicle_models.json`, editable in the UI
+  (`components/torque_curve.py`)
 - Transmission: automatic gear selection to maintain 1200–2200 RPM
-- Brakes: friction circle (max deceleration respecting a_lat)
+- Brakes: friction circle (max deceleration respecting a_lat) + brake
+  bias coupled to longitudinal load transfer (first-axle-lockup cap)
+- Fuel: dynamic consumption = BSFC × instantaneous power × dt (output,
+  not input); burned mass feeds back into vehicle dynamics
+- Thermal braking (`ENDURANCE_THERMAL` mode): lumped disc heat model
+  with temperature-dependent fade — wraps the two-pass solver without
+  modifying it (fade-disabled output is bit-identical to qualifying)
+- Units: psi↔bar conversions centralized in `src/vehicle/units.py`
 
 ### Forward-Backward Solver (Two-Pass)
 1. **Forward pass**: maximum acceleration respecting traction and lateral velocity limits
@@ -130,8 +160,11 @@ Sources: TUM FTM (`src/tracks/tumftm.py`), custom generators (`src/tracks/genera
 - `__init__.py` exports only the public interface
 
 ### Testing
-- `pytest tests/` must pass 100% before any commit
+- `python3 -m pytest` must pass 100% before any commit (includes unit and solver regression tests)
 - Unit tests per class in `tests/test_<module>.py`
+- Solver regression baselines checked by `tests/test_solver_regression.py`
+- To regenerate solver baselines (only after verified, cross-validated solver accuracy tuning):
+  `python3 tests/generate_regression_baselines.py`
 - Never push with failing tests
 
 ### Git — Conventional Commits
@@ -149,9 +182,13 @@ perf:     performance improvement (solver speed, memory)
 ---
 
 ## Status (2026)
-- Core solver: complete and validated (18/18 tests passing)
-- Pending: frontend customization + vehicle params from Pérez
-- Roadmap: 3DOF roll dynamics, genetic algorithm setup optimization, Pacejka tire model, multi-lap comparison
+- Core solver: complete and validated (37/37 tests passing, 5 regression baselines)
+- Done: Porsche/GT3 cleanup, full vehicle-parameter UI (PSI pressure,
+  editable gear ratios, weight distribution, Iz, Cl), dynamic BSFC fuel,
+  interactive torque curve editor, ENDURANCE_THERMAL brake-fade mode,
+  HDF5 track persistence (`tracks/custom/`), optimization unblocked for Copa Truck
+- Pending: vehicle params from Pérez
+- Roadmap: 3DOF roll dynamics, genetic algorithm setup optimization, Pacejka tire model, multi-lap endurance (multi-lap heat carry-over)
 
 ---
 
@@ -162,3 +199,13 @@ perf:     performance improvement (solver speed, memory)
 3. **pytest must pass 100%** before any commit is proposed.
 4. **ABCs must be fully implemented** — no abstract method left unimplemented in subclasses.
 5. **Keep this file up to date** — when proposing structural changes, include a `CLAUDE.md` diff.
+
+---
+
+## Matriz de Motores (SSoT: AGENTS.md)
+
+| Motor | Agente | Uso |
+|-------|--------|-----|
+| A | Claude Code (GUI) | Tarefas Visuais/GUI, pesquisa profunda |
+| B | Antigravity CLI | Tarefas rapidas, execucao paralela |
+| C | OpenCode | Tarefas pesadas em lote, fallback |

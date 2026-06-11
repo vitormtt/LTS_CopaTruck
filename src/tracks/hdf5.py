@@ -26,7 +26,14 @@ class CircuitHDF5Writer:
     def __init__(self, filepath: str):
         self.filepath = filepath
 
-    def write_circuit(self, circuit: CircuitData) -> None:
+    def write_circuit(self, circuit: CircuitData, extra_attrs: dict = None) -> None:
+        """Write circuit to HDF5.
+
+        Args:
+            circuit: Standardized circuit data.
+            extra_attrs: Optional extra metadata attributes (e.g.
+                ``{'grip_mult': 1.1}``) stored in the metadata group.
+        """
         with h5py.File(self.filepath, 'w') as hdf:
             meta_grp = hdf.create_group('metadata')
             meta_grp.attrs['name'] = circuit.name
@@ -35,6 +42,8 @@ class CircuitHDF5Writer:
             meta_grp.attrs['date_created'] = datetime.now().isoformat()
             meta_grp.attrs['n_points'] = len(circuit.centerline_x)
             meta_grp.attrs['average_width'] = float(np.mean(circuit.track_width))
+            for key, value in (extra_attrs or {}).items():
+                meta_grp.attrs[key] = value
             centerline_grp = hdf.create_group('centerline')
             centerline_grp.create_dataset('x', data=circuit.centerline_x, compression='gzip', compression_opts=9)
             centerline_grp.create_dataset('y', data=circuit.centerline_y, compression='gzip', compression_opts=9)
@@ -75,7 +84,8 @@ class CircuitHDF5Reader:
                 'coordinate_system': hdf['metadata'].attrs['coordinate_system'],
                 'date_created': hdf['metadata'].attrs['date_created'],
                 'n_points': hdf['metadata'].attrs.get('n_points', 0),
-                'average_width': hdf['metadata'].attrs.get('average_width', 0)
+                'average_width': hdf['metadata'].attrs.get('average_width', 0),
+                'grip_mult': hdf['metadata'].attrs.get('grip_mult', 1.0),
             }
             circuit = CircuitData(
                 name=metadata['name'],

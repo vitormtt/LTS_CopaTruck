@@ -1,10 +1,15 @@
-from .lap_time_solver import run_simulation, run_bicycle_model, SimulationResult
-from .simulation_modes import SimulationConfig, SimulationMode
+"""
+Simulation package — exports public simulation API.
+"""
+
+from .lap_time_solver import run_bicycle_model, run_simulation, SimulationResult
+from .simulation_modes import SimulationMode, SimulationConfig, DriverInputChannels
 
 __all__ = [
-    'run_simulation',
-    'run_bicycle_model',
-    'SimulationResult',
-    'SimulationConfig',
-    'SimulationMode',
+    "run_bicycle_model",
+    "run_simulation",
+    "SimulationResult",
+    "SimulationMode",
+    "SimulationConfig",
+    "DriverInputChannels",
 ]
