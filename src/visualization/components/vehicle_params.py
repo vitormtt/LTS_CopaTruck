@@ -16,6 +16,7 @@ import streamlit as st
 from src.vehicle.fleet import get_vehicle_by_id, list_vehicles
 from src.vehicle.units import bar_to_psi, psi_to_bar
 from .helpers import init_session_state
+from .torque_curve import render_torque_curve_editor
 
 # Cold pressure UI range mapped to the safe setup window (1.4–2.4 bar)
 _PRESSURE_PSI_MIN = 20.5
@@ -211,6 +212,9 @@ def parametros_veiculo_page() -> None:
                 "Idle RPM", 500.0, 1200.0, float(vp.engine.rpm_idle),
                 step=50.0, key="vp_rpm_idle"
             )
+
+    with st.expander("📈 Engine / Torque Curve"):
+        render_torque_curve_editor(vp, selected_vid)
 
     with st.expander("⛽ Fuel"):
         vp.engine.bsfc_g_per_kwh = st.number_input(
