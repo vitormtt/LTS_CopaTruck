@@ -237,11 +237,20 @@ def resultados_page() -> None:
     c7.metric("Peak Accel G", f"{float(np.max(alon_g)):.2f} G")
     c8.metric("Braking Zone Time", f"{(time_brake/tempo_total)*100:.1f} %")
 
+    fuel_total = float(np.max(res['consumo']))
+    dist_km = float(dist[-1]) / 1000.0 if len(dist) else 0.0
+    fuel_per_km_out = fuel_total / dist_km if dist_km > 0 else 0.0
+
     c9, c10, c11, c12 = st.columns(4)
     c9.metric("Cabin Roll Angle", f"{max_roll:.2f} °")
     c10.metric("Final Tyre Temp", f"{t_pneu_fim:.1f} °C")
     c11.metric("Final Tyre Pressure", f"{p_pneu_fim:.2f} bar")
-    c12.metric("Total Fuel Used", f"{float(np.max(res['consumo'])):.3f} L")
+    c12.metric("Total Fuel Used", f"{fuel_total:.3f} L")
+
+    c13, c14, _, _ = st.columns(4)
+    c13.metric("Avg Consumption", f"{fuel_per_km_out:.2f} L/km",
+               help="Computed dynamically from BSFC × instantaneous power.")
+    c14.metric("Fuel Mass Burned", f"{fuel_total * float(getattr(vp, 'fuel_density_kg_per_l', 0.85)):.1f} kg")
 
     st.markdown("---")
 
@@ -382,6 +391,29 @@ def resultados_page() -> None:
         )
         fig_ggv.update_yaxes(scaleanchor='x', scaleratio=1)
         st.plotly_chart(fig_ggv, width="stretch")
+
+    # --- Fuel consumption (dynamic BSFC model) ---
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        fig_fuel = go.Figure()
+        fig_fuel.add_trace(go.Scatter(
+            x=dist, y=res['consumo'], mode='lines',
+            name='Fuel used', line=dict(color='saddlebrown', width=2)))
+        fig_fuel.update_layout(title='Cumulative Fuel Used (L)', height=280,
+                               margin=dict(l=0, r=0, t=30, b=0))
+        st.plotly_chart(fig_fuel, width="stretch")
+    with col_f2:
+        # Instantaneous fuel flow [L/h] from the cumulative channel
+        with np.errstate(divide='ignore', invalid='ignore'):
+            fuel_flow = np.gradient(res['consumo'], res['time']) * 3600.0
+        fuel_flow = np.nan_to_num(fuel_flow, nan=0.0, posinf=0.0, neginf=0.0)
+        fig_flow = go.Figure()
+        fig_flow.add_trace(go.Scatter(
+            x=dist, y=fuel_flow, mode='lines',
+            name='Fuel flow', line=dict(color='chocolate', width=2)))
+        fig_flow.update_layout(title='Fuel Flow (L/h)', height=280,
+                               margin=dict(l=0, r=0, t=30, b=0))
+        st.plotly_chart(fig_flow, width="stretch")
 
     # --- Roll & Slip ---
     col_g7, col_g8 = st.columns(2)
