@@ -145,7 +145,7 @@ def render_torque_curve_editor(vp, vehicle_id: str) -> Tuple[List[float], List[f
 
     col_save, col_reset = st.columns(2)
     with col_save:
-        if st.button("💾 Save Curve", width="stretch", key="torque_save",
+        if st.button("Save Curve", width="stretch", key="torque_save",
                      disabled=bool(errors)):
             engine.torque_curve_rpm = rpm_pts
             engine.torque_curve_nm = trq_pts
@@ -153,7 +153,7 @@ def render_torque_curve_editor(vp, vehicle_id: str) -> Tuple[List[float], List[f
             st.session_state.vehicle_params = vp
             st.success("Torque curve saved to vehicle parameters.")
     with col_reset:
-        if st.button("↩️ Reset to Model Default", width="stretch",
+        if st.button("Reset to Model Default", width="stretch",
                      key="torque_reset"):
             default_vp = get_vehicle_by_id(vehicle_id)
             engine.torque_curve_rpm = list(default_vp.engine.torque_curve_rpm)
