@@ -73,12 +73,18 @@ def test_solver_regression(case_id: str) -> None:
     
     circuit, _ = CircuitHDF5Reader(track_path).read_circuit()
     
+    # Apply per-case brake overrides recorded in the baseline
+    for field_name, value in baseline.get("brake_overrides", {}).items():
+        setattr(vp.brake, field_name, value)
+
     # Configure simulation
     if mode == "qualifying":
         sim_config = SimulationConfig.qualifying(track_id=track_id)
     elif mode == "standing_start":
         sim_config = SimulationConfig.standing_start(track_id=track_id)
         sim_config.launch_rpm = 1500.0  # Diesel truck launch RPM
+    elif mode == "endurance_thermal":
+        sim_config = SimulationConfig.endurance_thermal(track_id=track_id)
     else:
         pytest.fail(f"Unknown mode: {mode}")
         
@@ -122,6 +128,12 @@ def test_solver_regression(case_id: str) -> None:
             actual_arr = result.gear.astype(float)
         elif channel_name == "temp_tyre_c":
             actual_arr = result.temp_tyre_c
+        elif channel_name == "disc_temp_front_c":
+            actual_arr = result.disc_temp_front_c
+        elif channel_name == "disc_temp_rear_c":
+            actual_arr = result.disc_temp_rear_c
+        elif channel_name == "brake_fade_factor":
+            actual_arr = result.brake_fade_factor
         else:
             continue
             
