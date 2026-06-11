@@ -28,6 +28,27 @@ def simulacao_page() -> None:
     
     st.info(f"✓ Track Loaded: **{st.session_state.circuit_meta['name']}** | Vehicle Mode: **{mode}** ({vp.name})")
 
+    sim_mode_label = st.radio(
+        "Simulation Mode:",
+        ["Qualifying", "Standing Start", "Thermal Braking / Endurance"],
+        horizontal=True,
+        key="sim_mode_select",
+        help="Thermal Braking adds a brake disc heat model with "
+             "temperature-dependent fade (heavy-vehicle braking stress)."
+    )
+    sim_mode_key = {
+        "Qualifying": "qualifying",
+        "Standing Start": "standing_start",
+        "Thermal Braking / Endurance": "endurance_thermal",
+    }[sim_mode_label]
+
+    ambient_temp_c = 25.0
+    if sim_mode_key == "endurance_thermal":
+        ambient_temp_c = st.number_input(
+            "Ambient Temperature (°C)", 0.0, 50.0, 25.0, step=1.0,
+            key="sim_ambient_temp"
+        )
+
     col_play, col_reset = st.columns(2)
     
     with col_reset:
@@ -46,7 +67,11 @@ def simulacao_page() -> None:
 
                 # Trucks don't use gears 1-3 at racing speed
                 gear_min = 4
-                solver_config = {"gear_min": gear_min}
+                solver_config = {"gear_min": gear_min, "mode": sim_mode_key}
+                if sim_mode_key == "endurance_thermal":
+                    solver_config["ambient_temp_c"] = float(ambient_temp_c)
+                elif sim_mode_key == "standing_start":
+                    solver_config["launch_rpm"] = 1500.0  # diesel truck launch
 
                 # Construct result filepath
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
