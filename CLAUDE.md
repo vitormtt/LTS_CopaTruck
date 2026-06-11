@@ -58,9 +58,18 @@ LapTimeSimulator_CopaTruck/
 **Bicycle Model 2DOF** with extensions:
 - Lateral dynamics: cornering forces (Cf, Cr)
 - Longitudinal dynamics: traction limited by grip + aerodynamic drag
-- Engine: realistic torque curve (diesel peak ~1300 RPM)
+- Engine: realistic torque curve (diesel peak ~1300 RPM); per-model
+  default curves in `data/vehicle_models.json`, editable in the UI
+  (`components/torque_curve.py`)
 - Transmission: automatic gear selection to maintain 1200–2200 RPM
-- Brakes: friction circle (max deceleration respecting a_lat)
+- Brakes: friction circle (max deceleration respecting a_lat) + brake
+  bias coupled to longitudinal load transfer (first-axle-lockup cap)
+- Fuel: dynamic consumption = BSFC × instantaneous power × dt (output,
+  not input); burned mass feeds back into vehicle dynamics
+- Thermal braking (`ENDURANCE_THERMAL` mode): lumped disc heat model
+  with temperature-dependent fade — wraps the two-pass solver without
+  modifying it (fade-disabled output is bit-identical to qualifying)
+- Units: psi↔bar conversions centralized in `src/vehicle/units.py`
 
 ### Forward-Backward Solver (Two-Pass)
 1. **Forward pass**: maximum acceleration respecting traction and lateral velocity limits
@@ -173,9 +182,13 @@ perf:     performance improvement (solver speed, memory)
 ---
 
 ## Status (2026)
-- Core solver: complete and validated (18/18 tests passing)
-- Pending: frontend customization + vehicle params from Pérez
-- Roadmap: 3DOF roll dynamics, genetic algorithm setup optimization, Pacejka tire model, multi-lap comparison
+- Core solver: complete and validated (37/37 tests passing, 5 regression baselines)
+- Done: Porsche/GT3 cleanup, full vehicle-parameter UI (PSI pressure,
+  editable gear ratios, weight distribution, Iz, Cl), dynamic BSFC fuel,
+  interactive torque curve editor, ENDURANCE_THERMAL brake-fade mode,
+  HDF5 track persistence (`tracks/custom/`), optimization unblocked for Copa Truck
+- Pending: vehicle params from Pérez
+- Roadmap: 3DOF roll dynamics, genetic algorithm setup optimization, Pacejka tire model, multi-lap endurance (multi-lap heat carry-over)
 
 ---
 
