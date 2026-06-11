@@ -96,8 +96,14 @@ def cached_solver(
 
 
 @st.cache_data
-def load_hdf5(path: str) -> Tuple[Any, dict, dict]:
-    """Load a track from HDF5 and return projected coordinate dict for Plotly."""
+def load_hdf5(path: str, mtime: float = 0.0) -> Tuple[Any, dict, dict]:
+    """Load a track from HDF5 and return projected coordinate dict for Plotly.
+
+    Args:
+        path: HDF5 file path.
+        mtime: File modification time — part of the cache key so a
+            rewritten file (e.g. a re-saved custom track) is reloaded.
+    """
     circuit, meta = CircuitHDF5Reader(path).read_circuit()
     # Align Cartesian coordinates for plotting (y-axis inverted is customary in telemetry)
     x_c = -(circuit.centerline_y - circuit.centerline_y[0])

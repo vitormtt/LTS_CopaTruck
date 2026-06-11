@@ -5,9 +5,14 @@ Author: Lap Time Simulator Team
 Date: 2026-06-06
 """
 import os
+import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+from src.tracks.hdf5 import CircuitData, CircuitHDF5Writer
 from .helpers import DATA_PATH, load_hdf5, load_interlagos_real, init_session_state
+
+# Modified tracks are persisted here — source files are never overwritten
+CUSTOM_TRACKS_SUBDIR = "custom"
 
 
 def pista_page() -> None:
@@ -28,6 +33,13 @@ def pista_page() -> None:
             return
         
         pistas = [f for f in os.listdir(DATA_PATH) if f.endswith('.hdf5')]
+        # Include user-saved modified tracks (tracks/custom/)
+        custom_dir = os.path.join(DATA_PATH, CUSTOM_TRACKS_SUBDIR)
+        if os.path.isdir(custom_dir):
+            pistas += [
+                os.path.join(CUSTOM_TRACKS_SUBDIR, f)
+                for f in os.listdir(custom_dir) if f.endswith('.hdf5')
+            ]
         if not pistas:
             st.warning(f"No .hdf5 track files found in {DATA_PATH}!")
             return
@@ -42,7 +54,8 @@ def pista_page() -> None:
             pistas,
             index=default_idx
         )
-        circuit, meta, plot_data = load_hdf5(os.path.join(DATA_PATH, sel))
+        sel_path = os.path.join(DATA_PATH, sel)
+        circuit, meta, plot_data = load_hdf5(sel_path, os.path.getmtime(sel_path))
 
     st.markdown("---")
     st.subheader("🔧 Edit Track Geometry & Friction")
@@ -121,6 +134,22 @@ def pista_page() -> None:
 
     st.session_state.circuit = circuit_c
     st.session_state.circuit_meta = meta
+
+    # Persist the modified circuit to disk (never overwrites the source)
+    if w_scale != 1.0 or g_mult != 1.0:
+        if st.button("💾 Salvar Pista Modificada (HDF5)",
+                     help="Grava a pista com as modificações em "
+                          f"{DATA_PATH}/{CUSTOM_TRACKS_SUBDIR}/ — o arquivo "
+                          "original nunca é sobrescrito."):
+            custom_dir = os.path.join(DATA_PATH, CUSTOM_TRACKS_SUBDIR)
+            os.makedirs(custom_dir, exist_ok=True)
+            safe_name = str(meta['name']).replace(' ', '_').replace('/', '-')[:40]
+            out_path = os.path.join(custom_dir, f"{safe_name}_modified.hdf5")
+            CircuitHDF5Writer(out_path).write_circuit(
+                circuit_c, extra_attrs={'grip_mult': float(g_mult)}
+            )
+            st.success(f"✓ Pista salva em `{out_path}` — disponível no "
+                       "seletor 'HDF5 Circuit Files'.")
 
     # Plot track geometry
     fig = go.Figure()
