@@ -64,10 +64,19 @@ class _LegacyVehicleParams:
     n_gears: int = 12
     gear_ratios: list = None
     final_drive: float = 5.33
+    driveline_eff: float = 0.95
+    shift_time: float = 0.3
     max_decel: float = 7.5
     brake_balance: float = 58.0
     max_brake_force: float = 50000.0
+    brake_response_time: float = 0.1
+    abs_enabled: bool = False
+    abs_slip_target: float = 0.15
     bsfc: float = 210.0
+    pacejka_B: float = 10.0
+    pacejka_C: float = 1.3
+    pacejka_D: float = 1.0
+    pacejka_E: float = 0.97
     # Brake disc thermal model (ENDURANCE_THERMAL)
     disc_thermal_efficiency: float = 0.90
     disc_mass_kg: float = 30.0
@@ -84,6 +93,9 @@ class _LegacyVehicleParams:
     k_roll_front: float = 115_000.0
     k_roll_rear: float = 115_000.0
     track_width: float = 1.565
+    track_width_front: float = 0.0
+    track_width_rear: float = 0.0
+    Iz: float = 0.0
     fuel_per_km: float = 1.5
     speed_limit: float = 999.0
     initial_fuel_l: float = 100.0
@@ -94,7 +106,13 @@ class _LegacyVehicleParams:
             self.gear_ratios = [14.0, 10.5, 7.8, 5.9, 4.5, 3.5, 2.7, 2.1,
                                  1.6, 1.25, 1.0, 0.78]
         self.L = self.lf + self.lr
-        self.Iz = self.m * (self.lf**2 + self.lr**2) / 2
+        if self.Iz <= 0.0:
+            # Geometric estimate when the preset does not provide Iz
+            self.Iz = self.m * (self.lf**2 + self.lr**2) / 2
+        if self.track_width_front <= 0.0:
+            self.track_width_front = self.track_width
+        if self.track_width_rear <= 0.0:
+            self.track_width_rear = self.track_width
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +192,10 @@ class SimulationResult:
     disc_temp_rear_c: Optional[np.ndarray] = None
     brake_fade_factor: Optional[np.ndarray] = None
 
+    # Axle slip-angle channels (steady-state bicycle model, Cf/Cr)
+    front_slip_angle_deg: Optional[np.ndarray] = None
+    rear_slip_angle_deg: Optional[np.ndarray] = None
+
     # -----------------------------------------------------------------------
     # KPI properties
     # -----------------------------------------------------------------------
@@ -235,6 +257,14 @@ class SimulationResult:
             return None
         return float(np.min(self.brake_fade_factor))
 
+    @property
+    def understeer_margin_deg(self) -> Optional[float]:
+        """Mean front-minus-rear slip angle [deg]. Positive = understeer."""
+        if self.front_slip_angle_deg is None:
+            return None
+        return float(np.mean(self.front_slip_angle_deg
+                             - self.rear_slip_angle_deg))
+
     def to_dataframe(self) -> pd.DataFrame:
         """Export all channels to a tidy DataFrame (MoTeC/Pi Toolbox compatible)."""
         df = pd.DataFrame({
@@ -257,6 +287,9 @@ class SimulationResult:
             df["disc_temp_front_c"] = self.disc_temp_front_c
             df["disc_temp_rear_c"] = self.disc_temp_rear_c
             df["brake_fade_factor"] = self.brake_fade_factor
+        if self.front_slip_angle_deg is not None:
+            df["front_slip_angle_deg"] = self.front_slip_angle_deg
+            df["rear_slip_angle_deg"] = self.rear_slip_angle_deg
         return df
 
     def save_csv(self, path: str) -> None:
@@ -299,7 +332,7 @@ def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
 
 
 def _compute_track_geometry(circuit) -> tuple:
-    """Compute ds, s, curvature radius arrays from circuit centerline."""
+    """Compute ds, s, radius and signed curvature from circuit centerline."""
     x = circuit.centerline_x
     y = circuit.centerline_y
     n = len(x)
@@ -319,8 +352,11 @@ def _compute_track_geometry(circuit) -> tuple:
         radius = np.where(np.abs(curvature) > 1e-6,
                           1.0 / np.abs(curvature), 1e6)
     radius = np.clip(radius, 10.0, 1e6)
+    # Signed curvature consistent with the clipped radius (sign = turn
+    # direction; magnitude = 1/radius) — used by the yaw-rate model
+    kappa = np.sign(curvature) / radius
 
-    return x, y, n, ds, s, radius
+    return x, y, n, ds, s, radius, kappa
 
 
 def _torque_curve(rpm: float, p: _LegacyVehicleParams) -> float:
@@ -399,18 +435,6 @@ def _driver_inputs_from_accel(
     throttle = np.where(a_long > 0.0, 100.0, 0.0)
     brake    = np.clip((-a_long / max(max_decel, 1e-6)) * 100.0, 0.0, 100.0)
     return throttle, brake
-
-
-def _steering_from_radius(
-    radius: np.ndarray,
-    v_ms: np.ndarray,
-    wheelbase: float,
-    steering_ratio: float = 15.0,
-) -> np.ndarray:
-    """Estimate steering wheel angle from Ackermann geometry."""
-    delta_rad = wheelbase / np.maximum(radius, 1.0)
-    delta_deg = np.degrees(delta_rad) * steering_ratio
-    return delta_deg
 
 
 def _fuel_step(
@@ -496,97 +520,417 @@ def _bias_limited_decel(
 
 
 # ---------------------------------------------------------------------------
+# Physics model constants (named, calibrable)
+# ---------------------------------------------------------------------------
+
+_G = 9.81           # [m/s²]
+_RHO_AIR = 1.225    # [kg/m³]
+# Tyre load sensitivity: relative grip loss per unit of relative lateral
+# load transfer on an axle (Pacejka 2012, load-sensitivity of mu).
+# Calibrated against the validated lap-time windows (Cascavel 76-82 s,
+# Interlagos 125-132 s) together with the preset mu/Cx values.
+_S_LOAD = 0.12
+# Fraction of the peak axle lateral force usable as yaw-moment authority
+# during direction changes (quasi-transient extension)
+_YAW_MOMENT_FACTOR = 0.5
+# Reference braking-zone duration for the first-order pedal-response
+# model: effective decel = cap * T_ref / (T_ref + t_response/2)
+_T_BRAKE_ZONE_REF = 2.5   # [s]
+# Threshold-braking margin of a driver without ABS (Limpert 1999)
+_NO_ABS_MODULATION = 0.94
+# Speed hysteresis below the last upshift point before a downshift is
+# allowed (prevents shift limit-cycles when the cut drops the speed)
+_DOWNSHIFT_HYST_MS = 2.0   # [m/s]
+_ABS_PEAK_SLIP = 0.15           # slip ratio at peak longitudinal force
+_ABS_SLIP_SENSITIVITY = 0.5     # efficiency loss per unit slip-target error
+_F_NORMAL_FLOOR_FRAC = 0.1      # min F_normal as fraction of m*g (lift floor)
+# Tyre thermal model
+_T_AMBIENT_TYRE = 25.0   # [degC]
+_T_SCALE_TYRE = 100.0    # [degC] rise at 2g combined load above ambient
+_TAU_TYRE = 50.0         # [s] thermal time constant
+
+
+# ---------------------------------------------------------------------------
+# Subsystem physics helpers (engine, aero, axle grip, brakes, yaw)
+# ---------------------------------------------------------------------------
+
+def _engine_torque(
+    rpm: float,
+    p: _LegacyVehicleParams,
+    torque_map_rpm: list,
+    torque_map_nm: list,
+) -> float:
+    """Engine torque [N·m] at rpm, capped so T*omega never exceeds P_max."""
+    if torque_map_rpm:
+        T = _torque_curve_interp(rpm, torque_map_rpm, torque_map_nm, p.rpm_max)
+    else:
+        T = _torque_curve(rpm, p)
+    omega = max(rpm, p.rpm_idle) * 2.0 * np.pi / 60.0
+    if omega > 0.0:
+        T = min(T, p.P_max / omega)
+    return T
+
+
+def _aero_normal_force(p: _LegacyVehicleParams, v: float) -> float:
+    """Aerodynamic vertical force [N]. Positive = downforce (Cl < 0)."""
+    return -0.5 * _RHO_AIR * p.Cl * p.A_front * v ** 2
+
+
+def _axle_grip(
+    p: _LegacyVehicleParams,
+    mu: float,
+    m_cur: float,
+    v: float,
+    a_lat_est: float,
+) -> tuple[float, float, float, float, float]:
+    """
+    Quasi-static axle grip with lateral load transfer.
+
+    Axle normal loads follow the static weight distribution (aero load
+    assumed to act at the CG). Lateral load transfer on each axle is
+
+        dFz_axle = m * a_lat * h_cg / tw_axle * (k_roll share of axle)
+
+    and degrades the axle's effective friction through tyre load
+    sensitivity (_S_LOAD). The friction scale is mu * pacejka_D.
+
+    Returns:
+        (mu_f, mu_r, Fz_f, Fz_r, F_normal): effective friction per axle,
+        axle normal loads [N] and total normal force [N].
+    """
+    F_normal = max(m_cur * _G + _aero_normal_force(p, v),
+                   _F_NORMAL_FLOOR_FRAC * m_cur * _G)
+    Fz_f = F_normal * p.lr / p.L
+    Fz_r = F_normal * p.lf / p.L
+
+    k_total = max(p.k_roll_front + p.k_roll_rear, 1.0)
+    frac_f = p.k_roll_front / k_total
+    tw_f = max(p.track_width_front, 0.5)
+    tw_r = max(p.track_width_rear, 0.5)
+
+    lat_moment = m_cur * abs(a_lat_est) * p.h_cg
+    dfz_f = lat_moment / tw_f * frac_f
+    dfz_r = lat_moment / tw_r * (1.0 - frac_f)
+
+    mu_base = mu * p.pacejka_D
+    mu_f = mu_base * (1.0 - _S_LOAD * min(dfz_f / max(Fz_f / 2.0, 1.0), 0.95))
+    mu_r = mu_base * (1.0 - _S_LOAD * min(dfz_r / max(Fz_r / 2.0, 1.0), 0.95))
+    return mu_f, mu_r, Fz_f, Fz_r, F_normal
+
+
+def _v_corner_limit(
+    p: _LegacyVehicleParams,
+    mu_lat: float,
+    m_cur: float,
+    radius_i: float,
+) -> float:
+    """
+    Cornering speed limit including aerodynamic load.
+
+    Solves m*v²/R <= mu*(m*g + c*v²) with c = -0.5*rho*Cl*A (downforce
+    raises the limit, lift lowers it). Falls back to the speed limiter
+    when downforce makes the corner aero-unlimited.
+    """
+    c_aero = -0.5 * _RHO_AIR * p.Cl * p.A_front
+    denom = m_cur - mu_lat * c_aero * radius_i
+    if denom <= 0.05 * m_cur:
+        return p.speed_limit
+    return float(np.sqrt(max(mu_lat * m_cur * _G * radius_i / denom, 0.0)))
+
+
+def _brake_system_cap(
+    p: _LegacyVehicleParams,
+    mu_total: float,
+    m_cur: float,
+    F_normal: float,
+) -> float:
+    """
+    Brake-SYSTEM deceleration cap (tyre grip handled separately).
+
+    Combines the system decel limit, the bias/first-axle-lockup limit,
+    the ABS / driver-modulation efficiency and a first-order pedal
+    response loss (average ramp loss over a reference braking zone).
+    """
+    cap = min(p.max_decel,
+              _bias_limited_decel(p, mu_total, m_cur, F_normal))
+    if p.abs_enabled:
+        cap *= max(1.0 - _ABS_SLIP_SENSITIVITY
+                   * abs(p.abs_slip_target - _ABS_PEAK_SLIP), 0.5)
+    else:
+        cap *= _NO_ABS_MODULATION
+    cap *= _T_BRAKE_ZONE_REF / (_T_BRAKE_ZONE_REF
+                                + max(p.brake_response_time, 0.0) / 2.0)
+    return cap
+
+
+def _yaw_speed_cap(
+    v_cand: float,
+    v_prev: float,
+    kappa_i: float,
+    kappa_prev: float,
+    ds_i: float,
+    p: _LegacyVehicleParams,
+    mz_avail: float,
+) -> float:
+    """
+    Quasi-transient yaw-rate cap (makes Iz live in the QSS solver).
+
+    Between consecutive points the yaw rate changes from v_prev*k_prev
+    to v*k_i over dt = ds/v; the required yaw moment Iz*d(psi_dot)/dt
+    may not exceed the available tyre yaw authority. When violated, the
+    candidate speed is reduced by bisection.
+    """
+    if ds_i <= 0.0 or p.Iz <= 0.0:
+        return v_cand
+
+    def mz_required(v: float) -> float:
+        return p.Iz * v * abs(v * kappa_i - v_prev * kappa_prev) / ds_i
+
+    if mz_required(v_cand) <= mz_avail:
+        return v_cand
+
+    lo, hi = 0.0, v_cand
+    for _ in range(20):
+        mid = 0.5 * (lo + hi)
+        if mz_required(mid) <= mz_avail:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def _backward_pass(
+    v_profile: np.ndarray,
+    fuel_acum: np.ndarray,
+    p: _LegacyVehicleParams,
+    mu: float,
+    ds: np.ndarray,
+    radius: np.ndarray,
+    fade: Optional[np.ndarray] = None,
+) -> None:
+    """
+    Shared braking (backward) pass — mutates v_profile in place.
+
+    Deceleration at each point is the minimum of the combined tyre-grip
+    limit (friction circle on the axle model) and the brake-system cap
+    (optionally scaled by a thermal fade factor).
+    """
+    n = len(v_profile)
+    m_fuel_initial = p.initial_fuel_l * p.fuel_density
+
+    for i in reversed(range(n - 1)):
+        v_next = v_profile[i + 1]
+        a_lat_next = v_next ** 2 / max(radius[i + 1], 1.0)
+
+        fuel_burned_kg = fuel_acum[i + 1] * p.fuel_density
+        m_cur = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
+
+        mu_f, mu_r, Fz_f, Fz_r, F_normal = _axle_grip(
+            p, mu, m_cur, v_next, a_lat_next
+        )
+        # All four wheels brake: capacity-weighted total friction
+        mu_total = (mu_f * Fz_f + mu_r * Fz_r) / F_normal
+
+        a_grip = np.sqrt(max(
+            (mu_total * F_normal / m_cur) ** 2 - a_lat_next ** 2, 0.0
+        ))
+        cap = _brake_system_cap(p, mu_total, m_cur, F_normal)
+        if fade is not None:
+            cap *= fade[i + 1]
+
+        a_decel_max = min(a_grip, cap)
+        if ds[i + 1] > 0:
+            v_brake_limit = np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1])
+            v_profile[i] = min(v_profile[i], v_brake_limit)
+
+
+def _finalize_pass(
+    v_profile: np.ndarray,
+    fuel_acum: np.ndarray,
+    p: _LegacyVehicleParams,
+    ds: np.ndarray,
+    radius: np.ndarray,
+) -> dict:
+    """
+    Shared time-integration pass over the FINAL speed profile.
+
+    Recomputes the authoritative channels so telemetry matches the
+    actual lap: time, longitudinal acceleration, gear/RPM, fuel (BSFC x
+    delivered power), axle slip angles (linear below the Magic-Formula
+    peak) and steady-state bicycle steering
+    delta = L/R + alpha_f - alpha_r.
+    """
+    n = len(v_profile)
+    time_profile = np.zeros(n)
+    a_long = np.zeros(n)
+    a_lat = np.zeros(n)
+    gear_profile = np.ones(n, dtype=int)
+    rpm_profile = np.zeros(n)
+    alpha_f_deg = np.zeros(n)
+    alpha_r_deg = np.zeros(n)
+    steering_deg = np.zeros(n)
+    m_fuel_initial = p.initial_fuel_l * p.fuel_density
+
+    # Slip angle at the Magic-Formula peak (B/C shape the curve)
+    alpha_peak = np.tan(np.pi / (2.0 * max(p.pacejka_C, 1.01))) \
+        / max(p.pacejka_B, 1.0)
+    steering_ratio = 15.0
+
+    for i in range(n):
+        v_i = v_profile[i]
+        a_lat[i] = v_i ** 2 / max(radius[i], 1.0)
+        gear_profile[i] = _select_gear_optimal(max(v_i, 0.5), p)
+        rpm_profile[i] = _get_rpm(v_i, gear_profile[i], p)
+
+        m_cur = p.m + max(
+            m_fuel_initial - fuel_acum[max(i - 1, 0)] * p.fuel_density, 0.0
+        )
+
+        # Axle lateral forces from steady-state moment balance
+        F_yf = m_cur * a_lat[i] * p.lr / p.L
+        F_yr = m_cur * a_lat[i] * p.lf / p.L
+        alpha_f = min(F_yf / max(p.Cf, 1.0), alpha_peak)
+        alpha_r = min(F_yr / max(p.Cr, 1.0), alpha_peak)
+        alpha_f_deg[i] = np.degrees(alpha_f)
+        alpha_r_deg[i] = np.degrees(alpha_r)
+        steering_deg[i] = np.degrees(
+            p.L / max(radius[i], 1.0) + alpha_f - alpha_r
+        ) * steering_ratio
+
+        if i > 0 and v_i > 0:
+            dt = ds[i] / v_i
+            time_profile[i] = time_profile[i - 1] + dt
+
+            v_prev = v_profile[i - 1]
+            a_actual = ((v_i ** 2 - v_prev ** 2) / (2.0 * ds[i])
+                        if ds[i] > 0 else 0.0)
+            a_long[i] = a_actual
+
+            # Authoritative fuel: delivered power from the final profile
+            F_drag = 0.5 * _RHO_AIR * p.Cx * p.A_front * v_prev ** 2
+            F_engine = m_cur * a_actual + F_drag
+            P_engine = min(max(F_engine, 0.0) * max(v_prev, 0.0), p.P_max)
+            fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
+                P_engine, dt, p.bsfc, p.fuel_density
+            )
+
+    if n > 1:
+        a_long[0] = a_long[1]
+
+    return {
+        "time_profile": time_profile,
+        "a_long": a_long,
+        "a_lat": a_lat,
+        "gear_profile": gear_profile,
+        "rpm_profile": rpm_profile,
+        "front_slip_angle_deg": alpha_f_deg,
+        "rear_slip_angle_deg": alpha_r_deg,
+        "steering_deg": steering_deg,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Core GGV solver
 # ---------------------------------------------------------------------------
 
 def _run_ggv_solver(
-    p, x, y, n, ds, s, radius, mu, v0,
-    fuel_per_km, temp_ini, p_tyre_cold,  # fuel_per_km unused — reads p.fuel_per_km
+    p, x, y, n, ds, s, radius, kappa, mu, v0,
+    temp_ini, p_tyre_cold,
     torque_map_rpm, torque_map_nm,
 ) -> dict:
-    """GGV forward + backward pass solver."""
-    g = 9.81
-    rho = 1.225
+    """
+    GGV forward + backward pass solver with live subsystems.
 
-    v_profile    = np.zeros(n)
-    a_long       = np.zeros(n)
-    a_lat        = np.zeros(n)
-    gear_profile = np.ones(n, dtype=int)
-    rpm_profile  = np.zeros(n)
-    temp_tyre    = np.ones(n) * temp_ini
-    fuel_acum    = np.zeros(n)
-
-    # ARB load-sensitivity model
-    # The axle with the higher ARB fraction bears more lateral load transfer,
-    # which degrades grip (load-sensitivity of tyre Fz-mu curve).
-    _K_LS = 0.20                                          # grip loss per unit Fz fraction
-    _k_roll_total = max(p.k_roll_front + p.k_roll_rear, 1.0)
-    _arb_frac_max = max(p.k_roll_front, p.k_roll_rear) / _k_roll_total
-    _Fz_static    = p.m * g / 2.0                         # per-axle static load [N]
-    _tw           = max(p.track_width, 0.5)
-
-    # Tyre thermal model constants
-    _T_AMBIENT = 25.0    # [degC]
-    _T_SCALE   = 100.0   # [degC] rise at 2g combined load above ambient
-    _TAU_TYRE  = 50.0    # [s] thermal time constant
+    Forward pass: traction limited by the P_max-capped torque curve
+    through the driveline (efficiency + shift-time traction cut), by
+    the driven REAR axle grip (with longitudinal load transfer helping
+    traction) and by the cornering limit including aero load. A
+    quasi-transient yaw-rate cap makes Iz effective in chicanes.
+    Backward pass and channel finalization are shared helpers.
+    """
+    v_profile = np.zeros(n)
+    temp_tyre = np.ones(n) * temp_ini
+    fuel_acum = np.zeros(n)
+    m_fuel_initial = p.initial_fuel_l * p.fuel_density
 
     v_profile[0] = v0
-    gear_profile[0] = _select_gear_optimal(v0, p) if v0 > 0 else 1
+    gear_cur = _select_gear_optimal(max(v0, 0.5), p)
+    shift_dist_remaining = 0.0
+    v_last_upshift = 0.0
+    a_long_prev = 0.0
 
     for i in range(1, n):
         v_prev = v_profile[i - 1]
-        gear   = _select_gear_optimal(v_prev, p)
-        gear_profile[i] = gear
+        if shift_dist_remaining > 0.0:
+            gear = gear_cur  # hold gear through the traction cut
+        else:
+            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p)
+            if gear_opt > gear_cur:
+                # Upshift interrupts traction for shift_time
+                shift_dist_remaining = v_prev * p.shift_time
+                v_last_upshift = v_prev
+                gear_cur = gear_opt
+            elif (gear_opt < gear_cur
+                  and v_prev < v_last_upshift - _DOWNSHIFT_HYST_MS):
+                gear_cur = gear_opt  # downshift (engine braking, no cut)
+            gear = gear_cur
 
         rpm = _get_rpm(v_prev, gear, p)
-        rpm_profile[i - 1] = rpm
-
-        if torque_map_rpm:
-            T_engine = _torque_curve_interp(rpm, torque_map_rpm, torque_map_nm, p.rpm_max)
-        else:
-            T_engine = _torque_curve(rpm, p)
+        T_engine = _engine_torque(rpm, p, torque_map_rpm, torque_map_nm)
 
         ratio_total = p.gear_ratios[gear - 1] * p.final_drive
-        F_traction  = T_engine * ratio_total / p.r_wheel
-        F_drag      = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
-        F_downforce = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
+        F_traction = T_engine * ratio_total * p.driveline_eff / p.r_wheel
+        if shift_dist_remaining > 0.0:
+            # Traction cut for the covered fraction of this step only
+            # (avoids inflating the cut on coarse track grids)
+            cut_frac = min(shift_dist_remaining / max(ds[i], 1e-9), 1.0)
+            F_traction *= (1.0 - cut_frac)
+            shift_dist_remaining -= ds[i]
+        F_drag = 0.5 * _RHO_AIR * p.Cx * p.A_front * v_prev ** 2
 
-        # Dynamic mass (fuel_acum[i-1] is the provisional forward-pass
-        # estimate; the time-integration loop recomputes it exactly)
-        m_fuel_initial = p.initial_fuel_l * p.fuel_density
         fuel_burned_kg = fuel_acum[i - 1] * p.fuel_density
         m_cur = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
 
-        F_normal    = m_cur * g + F_downforce
-        a_lat_cur   = v_prev ** 2 / max(radius[i], 1.0)
-        F_lat_used  = m_cur * a_lat_cur
-
-        # ARB load-sensitivity: grip penalty on the more loaded axle
-        delta_fz_frac = np.clip(
-            m_cur * a_lat_cur * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
-            0.0, 0.95
+        a_lat_cur = v_prev ** 2 / max(radius[i], 1.0)
+        mu_f, mu_r, Fz_f, Fz_r, F_normal = _axle_grip(
+            p, mu, m_cur, v_prev, a_lat_cur
         )
-        mu_eff = mu * (1.0 - _K_LS * delta_fz_frac)
 
-        v_lat_max   = np.sqrt(mu_eff * g * radius[i])
-        F_trac_grip = np.sqrt(max((mu_eff * F_normal) ** 2 - F_lat_used ** 2, 0.0))
-        F_traction  = min(F_traction, F_trac_grip)
+        # RWD traction: rear axle grip, helped by longitudinal load
+        # transfer m*a*h/L (evaluated with the previous step's accel)
+        Fz_r_trac = Fz_r + m_cur * max(a_long_prev, 0.0) * p.h_cg / p.L
+        F_yr_used = m_cur * a_lat_cur * p.lf / p.L
+        F_trac_grip = np.sqrt(max(
+            (mu_r * Fz_r_trac) ** 2 - F_yr_used ** 2, 0.0
+        ))
+        F_traction = min(F_traction, F_trac_grip)
 
         a = (F_traction - F_drag) / m_cur
-        a_long[i - 1] = a
+        a_long_prev = a
 
+        v_lat_max = _v_corner_limit(p, min(mu_f, mu_r), m_cur, radius[i])
         if ds[i] > 0:
-            v_possible   = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
-            v_profile[i] = min(v_possible, v_lat_max, p.speed_limit)
+            v_possible = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
+            v_cand = min(v_possible, v_lat_max, p.speed_limit)
+            # Quasi-transient yaw-rate cap (Iz)
+            mz_avail = _YAW_MOMENT_FACTOR * (
+                mu_f * Fz_f * p.lf + mu_r * Fz_r * p.lr
+            )
+            v_profile[i] = _yaw_speed_cap(
+                v_cand, v_prev, kappa[i], kappa[i - 1], ds[i], p, mz_avail
+            )
         else:
             v_profile[i] = min(v_prev, p.speed_limit)
 
-
         # Tyre thermal — asymptotic model with dissipation
-        a_combined   = np.sqrt(a ** 2 + a_lat_cur ** 2)
-        T_ideal      = _T_AMBIENT + _T_SCALE * min(a_combined / (2.0 * g), 1.0)
-        dt_step      = ds[i] / max(v_profile[i], 0.1)
-        temp_tyre[i] = temp_tyre[i - 1] + (dt_step / _TAU_TYRE) * (T_ideal - temp_tyre[i - 1])
+        a_combined = np.sqrt(a ** 2 + a_lat_cur ** 2)
+        T_ideal = _T_AMBIENT_TYRE + _T_SCALE_TYRE * min(
+            a_combined / (2.0 * _G), 1.0
+        )
+        dt_step = ds[i] / max(v_profile[i], 0.1)
+        temp_tyre[i] = temp_tyre[i - 1] + (dt_step / _TAU_TYRE) * (
+            T_ideal - temp_tyre[i - 1]
+        )
 
         # Provisional fuel from BSFC x delivered power (forward-pass
         # estimate used by the dynamic-mass terms above)
@@ -595,70 +939,17 @@ def _run_ggv_solver(
             P_engine, dt_step, p.bsfc, p.fuel_density
         )
 
-    # Forward loop writes [i-1]; fill last element explicitly
-    a_long[n - 1]      = a_long[n - 2]
-    rpm_profile[n - 1] = _get_rpm(v_profile[n - 1], gear_profile[n - 1], p)
-
-    for i in reversed(range(n - 1)):
-        v_next      = v_profile[i + 1]
-        a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
-
-        # Dynamic mass for backward pass
-        m_fuel_initial = p.initial_fuel_l * p.fuel_density
-        fuel_burned_kg = fuel_acum[i + 1] * p.fuel_density
-        m_cur_bw = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
-
-        delta_fz_f  = np.clip(
-            m_cur_bw * a_lat_next * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
-            0.0, 0.95
-        )
-        mu_eff_bwd  = mu * (1.0 - _K_LS * delta_fz_f)
-
-        F_downforce_next = 0.5 * rho * abs(p.Cl) * p.A_front * v_next ** 2
-        F_normal_next    = m_cur_bw * g + F_downforce_next
-        a_decel_max = min(
-            np.sqrt(max(0.0, (mu_eff_bwd * F_normal_next / m_cur_bw) ** 2 - a_lat_next ** 2)),
-            p.max_decel,
-            _bias_limited_decel(p, mu_eff_bwd, m_cur_bw, F_normal_next),
-        )
-        if ds[i + 1] > 0:
-            v_brake_limit = np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1])
-            v_profile[i]  = min(v_profile[i], v_brake_limit)
-
-    time_profile = np.zeros(n)
-    m_fuel_initial = p.initial_fuel_l * p.fuel_density
-
-    for i in range(n):
-        a_lat[i] = v_profile[i] ** 2 / max(radius[i], 1.0)
-        if i > 0 and v_profile[i] > 0:
-            dt = ds[i] / v_profile[i]
-            time_profile[i] = time_profile[i - 1] + dt
-
-            # Authoritative fuel: delivered power reconstructed from the
-            # final speed profile (zero in braking/coasting zones)
-            v_prev_t = v_profile[i - 1]
-            a_actual = ((v_profile[i] ** 2 - v_prev_t ** 2) / (2.0 * ds[i])
-                        if ds[i] > 0 else 0.0)
-            m_cur_t = p.m + max(m_fuel_initial - fuel_acum[i - 1] * p.fuel_density, 0.0)
-            F_drag_t = 0.5 * rho * p.Cx * p.A_front * v_prev_t ** 2
-            F_engine = m_cur_t * a_actual + F_drag_t
-            P_engine = min(max(F_engine, 0.0) * max(v_prev_t, 0.0), p.P_max)
-            fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
-                P_engine, dt, p.bsfc, p.fuel_density
-            )
+    _backward_pass(v_profile, fuel_acum, p, mu, ds, radius)
+    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius)
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
     return {
-        "time_profile": time_profile,
         "v_profile":    v_profile,
-        "a_long":       a_long,
-        "a_lat":        a_lat,
-        "gear_profile": gear_profile,
-        "rpm_profile":  rpm_profile,
         "temp_tyre":    temp_tyre,
-        "tyre_pressure":p_tyre_hot,
+        "tyre_pressure": p_tyre_hot,
         "fuel_acum":    fuel_acum,
+        **channels,
     }
 
 
@@ -742,7 +1033,7 @@ def _run_thermal_brake_model(
 
 
 def _run_endurance_thermal(
-    p, x, y, n, ds, s, radius, mu, v0,
+    p, x, y, n, ds, s, radius, kappa, mu, v0,
     temp_ini, p_tyre_cold,
     torque_map_rpm, torque_map_nm,
     ambient_temp_c: float,
@@ -753,31 +1044,20 @@ def _run_endurance_thermal(
 
     Wraps the standard two-pass GGV solver without modifying it: the
     lap is first solved normally, then the disc thermal model and a
-    fade-scaled backward pass iterate to a fixed point (fade only ever
-    reduces braking capacity, so the lap time is non-decreasing per
-    iteration and convergence is monotonic).
+    fade-scaled shared backward pass iterate to a fixed point (fade
+    only ever reduces braking capacity, so the lap time is
+    non-decreasing per iteration and convergence is monotonic).
 
     With fade disabled (onset temperature above any reached disc
     temperature) the output is bit-identical to the QUALIFYING mode.
     """
-    g = 9.81
-    rho = 1.225
-
     raw = _run_ggv_solver(
-        p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
-        mu=mu, v0=v0, fuel_per_km=p.fuel_per_km,
+        p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+        mu=mu, v0=v0,
         temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
         torque_map_rpm=torque_map_rpm,
         torque_map_nm=torque_map_nm,
     )
-
-    # ARB load-sensitivity constants — mirror _run_ggv_solver backward pass
-    _K_LS = 0.20
-    _k_roll_total = max(p.k_roll_front + p.k_roll_rear, 1.0)
-    _arb_frac_max = max(p.k_roll_front, p.k_roll_rear) / _k_roll_total
-    _Fz_static = p.m * g / 2.0
-    _tw = max(p.track_width, 0.5)
-    m_fuel_initial = p.initial_fuel_l * p.fuel_density
 
     T_front, T_rear, fade = _run_thermal_brake_model(
         raw["v_profile"], ds, p, ambient_temp_c
@@ -790,60 +1070,8 @@ def _run_endurance_thermal(
         v_profile = raw["v_profile"]
         fuel_acum = raw["fuel_acum"]
 
-        # Fade-scaled backward pass: fade reduces the BRAKE-side caps
-        # (system decel limit and bias/lock-up limit); the tyre-grip
-        # term is unaffected
-        for i in reversed(range(n - 1)):
-            v_next = v_profile[i + 1]
-            a_lat_next = v_next ** 2 / max(radius[i + 1], 1.0)
-
-            fuel_burned_kg = fuel_acum[i + 1] * p.fuel_density
-            m_cur_bw = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
-
-            delta_fz_f = np.clip(
-                m_cur_bw * a_lat_next * p.h_cg * _arb_frac_max / (_tw * _Fz_static),
-                0.0, 0.95
-            )
-            mu_eff_bwd = mu * (1.0 - _K_LS * delta_fz_f)
-
-            F_downforce_next = 0.5 * rho * abs(p.Cl) * p.A_front * v_next ** 2
-            F_normal_next = m_cur_bw * g + F_downforce_next
-
-            brake_cap = min(
-                p.max_decel,
-                _bias_limited_decel(p, mu_eff_bwd, m_cur_bw, F_normal_next),
-            ) * fade[i + 1]
-            a_decel_max = min(
-                np.sqrt(max(0.0, (mu_eff_bwd * F_normal_next / m_cur_bw) ** 2
-                            - a_lat_next ** 2)),
-                brake_cap,
-            )
-            if ds[i + 1] > 0:
-                v_brake_limit = np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1])
-                v_profile[i] = min(v_profile[i], v_brake_limit)
-
-        # Recompute time, lateral accel and authoritative fuel
-        time_profile = np.zeros(n)
-        a_lat = raw["a_lat"]
-        for i in range(n):
-            a_lat[i] = v_profile[i] ** 2 / max(radius[i], 1.0)
-            if i > 0 and v_profile[i] > 0:
-                dt = ds[i] / v_profile[i]
-                time_profile[i] = time_profile[i - 1] + dt
-
-                v_prev_t = v_profile[i - 1]
-                a_actual = ((v_profile[i] ** 2 - v_prev_t ** 2) / (2.0 * ds[i])
-                            if ds[i] > 0 else 0.0)
-                m_cur_t = p.m + max(
-                    m_fuel_initial - fuel_acum[i - 1] * p.fuel_density, 0.0
-                )
-                F_drag_t = 0.5 * rho * p.Cx * p.A_front * v_prev_t ** 2
-                F_engine = m_cur_t * a_actual + F_drag_t
-                P_engine = min(max(F_engine, 0.0) * max(v_prev_t, 0.0), p.P_max)
-                fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
-                    P_engine, dt, p.bsfc, p.fuel_density
-                )
-        raw["time_profile"] = time_profile
+        _backward_pass(v_profile, fuel_acum, p, mu, ds, radius, fade=fade)
+        raw.update(_finalize_pass(v_profile, fuel_acum, p, ds, radius))
 
         T_front, T_rear, fade = _run_thermal_brake_model(
             v_profile, ds, p, ambient_temp_c
@@ -860,146 +1088,120 @@ def _run_endurance_thermal(
 # ---------------------------------------------------------------------------
 
 def _run_standing_start(
-    p, x, y, n, ds, s, radius, mu,
+    p, x, y, n, ds, s, radius, kappa, mu,
     launch_rpm, wheelspin_limit,
-    fuel_per_km, temp_ini, p_tyre_cold,
+    temp_ini, p_tyre_cold,
     torque_map_rpm, torque_map_nm,
 ) -> dict:
-    """Standing start: clutch ramp + GGV forward/backward."""
-    g = 9.81
-    rho = 1.225
+    """Standing start: clutch ramp + GGV forward/backward (live subsystems)."""
     CLUTCH_RAMP_DIST = 30.0
 
-    v_profile    = np.zeros(n)
-    a_long       = np.zeros(n)
-    a_lat        = np.zeros(n)
-    gear_profile = np.ones(n, dtype=int)
-    rpm_profile  = np.zeros(n)
-    temp_tyre    = np.ones(n) * temp_ini
-    fuel_acum    = np.zeros(n)
+    v_profile = np.zeros(n)
+    temp_tyre = np.ones(n) * temp_ini
+    fuel_acum = np.zeros(n)
+    m_fuel_initial = p.initial_fuel_l * p.fuel_density
 
-    v_profile[0]    = 0.0
-    gear_profile[0] = 1
-    rpm_profile[0]  = launch_rpm
     launch_dist_accum = 0.0
+    gear_cur = 1
+    shift_dist_remaining = 0.0
+    v_last_upshift = 0.0
+    a_long_prev = 0.0
 
     for i in range(1, n):
-        v_prev  = v_profile[i - 1]
-        gear    = _select_gear_optimal(max(v_prev, 0.5), p)
-        gear_profile[i] = gear
+        v_prev = v_profile[i - 1]
+        in_launch = launch_dist_accum < CLUTCH_RAMP_DIST
+        if shift_dist_remaining > 0.0 and not in_launch:
+            gear = gear_cur  # hold gear through the traction cut
+        else:
+            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p)
+            if gear_opt > gear_cur:
+                if not in_launch:
+                    shift_dist_remaining = v_prev * p.shift_time
+                v_last_upshift = v_prev
+                gear_cur = gear_opt
+            elif (gear_opt < gear_cur
+                  and v_prev < v_last_upshift - _DOWNSHIFT_HYST_MS):
+                gear_cur = gear_opt
+            gear = gear_cur
 
         rpm = max(_get_rpm(v_prev, gear, p), launch_rpm if v_prev < 5.0 else 0)
-        rpm_profile[i - 1] = rpm
+        T_engine = _engine_torque(rpm, p, torque_map_rpm, torque_map_nm)
 
-        if torque_map_rpm:
-            T_engine = _torque_curve_interp(rpm, torque_map_rpm, torque_map_nm, p.rpm_max)
-        else:
-            T_engine = _torque_curve(rpm, p)
+        ratio_total = p.gear_ratios[gear - 1] * p.final_drive
+        F_traction_e = T_engine * ratio_total * p.driveline_eff / p.r_wheel
+        if shift_dist_remaining > 0.0 and not in_launch:
+            # Traction cut for the covered fraction of this step only
+            cut_frac = min(shift_dist_remaining / max(ds[i], 1e-9), 1.0)
+            F_traction_e *= (1.0 - cut_frac)
+            shift_dist_remaining -= ds[i]
+        F_drag = 0.5 * _RHO_AIR * p.Cx * p.A_front * v_prev ** 2
 
-        ratio_total  = p.gear_ratios[gear - 1] * p.final_drive
-        F_traction_e = T_engine * ratio_total / p.r_wheel
-        F_drag       = 0.5 * rho * p.Cx * p.A_front * v_prev ** 2
-        F_downforce  = 0.5 * rho * abs(p.Cl) * p.A_front * v_prev ** 2
-
-        # Dynamic mass (fuel_acum[i-1] is the provisional forward-pass
-        # estimate; the time-integration loop recomputes it exactly)
-        m_fuel_initial = p.initial_fuel_l * p.fuel_density
         fuel_burned_kg = fuel_acum[i - 1] * p.fuel_density
         m_cur = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
 
-        F_normal     = m_cur * g + F_downforce
+        a_lat_cur = v_prev ** 2 / max(radius[i], 1.0)
+        mu_f, mu_r, Fz_f, Fz_r, F_normal = _axle_grip(
+            p, mu, m_cur, v_prev, a_lat_cur
+        )
+        Fz_r_trac = Fz_r + m_cur * max(a_long_prev, 0.0) * p.h_cg / p.L
 
         if launch_dist_accum < CLUTCH_RAMP_DIST:
             clutch_factor = launch_dist_accum / CLUTCH_RAMP_DIST
-            slip_limit    = wheelspin_limit * (1.0 - clutch_factor) + 0.05
-            F_traction    = min(F_traction_e, mu * F_normal * (1.0 - slip_limit))
+            slip_limit = wheelspin_limit * (1.0 - clutch_factor) + 0.05
+            F_traction = min(
+                F_traction_e, mu_r * Fz_r_trac * (1.0 - slip_limit)
+            )
         else:
-            a_lat_cur   = v_prev ** 2 / max(radius[i], 1.0)
-            F_lat_used  = m_cur * a_lat_cur
-            F_trac_grip = np.sqrt(max((mu * F_normal) ** 2 - F_lat_used ** 2, 0.0))
-            F_traction  = min(F_traction_e, F_trac_grip)
+            F_yr_used = m_cur * a_lat_cur * p.lf / p.L
+            F_trac_grip = np.sqrt(max(
+                (mu_r * Fz_r_trac) ** 2 - F_yr_used ** 2, 0.0
+            ))
+            F_traction = min(F_traction_e, F_trac_grip)
 
         launch_dist_accum += ds[i]
         a = (F_traction - F_drag) / m_cur
-        a_long[i - 1] = a
+        a_long_prev = a
 
-        v_lat_max = np.sqrt(mu * g * radius[i])
+        v_lat_max = _v_corner_limit(p, min(mu_f, mu_r), m_cur, radius[i])
         if ds[i] > 0:
-            v_possible   = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
-            v_profile[i] = min(v_possible, v_lat_max, p.speed_limit)
+            v_possible = np.sqrt(max(0.0, v_prev ** 2 + 2 * a * ds[i]))
+            v_cand = min(v_possible, v_lat_max, p.speed_limit)
+            mz_avail = _YAW_MOMENT_FACTOR * (
+                mu_f * Fz_f * p.lf + mu_r * Fz_r * p.lr
+            )
+            v_profile[i] = _yaw_speed_cap(
+                v_cand, v_prev, kappa[i], kappa[i - 1], ds[i], p, mz_avail
+            )
         else:
             v_profile[i] = min(v_prev, p.speed_limit)
 
+        a_combined = np.sqrt(a ** 2 + a_lat_cur ** 2)
+        T_ideal = _T_AMBIENT_TYRE + _T_SCALE_TYRE * min(
+            a_combined / (2.0 * _G), 1.0
+        )
+        dt_step = ds[i] / max(v_profile[i], 0.1)
+        temp_tyre[i] = temp_tyre[i - 1] + (dt_step / _TAU_TYRE) * (
+            T_ideal - temp_tyre[i - 1]
+        )
 
-        a_combined   = np.sqrt(a ** 2 + (v_prev ** 2 / max(radius[i], 1.0)) ** 2)
-        T_ideal      = 25.0 + 100.0 * min(a_combined / (2.0 * g), 1.0)
-        dt_step      = ds[i] / max(v_profile[i], 0.1)
-        temp_tyre[i] = temp_tyre[i - 1] + (dt_step / 50.0) * (T_ideal - temp_tyre[i - 1])
-
-        # Provisional fuel from BSFC x delivered power (forward-pass
-        # estimate used by the dynamic-mass terms above)
         P_engine = max(F_traction, 0.0) * v_prev
         fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
             P_engine, dt_step, p.bsfc, p.fuel_density
         )
 
-    # Forward loop writes [i-1]; fill last element explicitly
-    a_long[n - 1]      = a_long[n - 2]
-    rpm_profile[n - 1] = _get_rpm(v_profile[n - 1], gear_profile[n - 1], p)
-
-    for i in reversed(range(n - 1)):
-        v_next      = v_profile[i + 1]
-        a_lat_next  = v_next ** 2 / max(radius[i + 1], 1.0)
-
-        # Dynamic mass for backward pass
-        m_fuel_initial = p.initial_fuel_l * p.fuel_density
-        fuel_burned_kg = fuel_acum[i + 1] * p.fuel_density
-        m_cur_bw = p.m + max(m_fuel_initial - fuel_burned_kg, 0.0)
-
-        F_downforce_next = 0.5 * rho * abs(p.Cl) * p.A_front * v_next ** 2
-        F_normal_next    = m_cur_bw * g + F_downforce_next
-        a_decel_max = min(
-            np.sqrt(max(0.0, (mu * F_normal_next / m_cur_bw) ** 2 - a_lat_next ** 2)),
-            p.max_decel,
-            _bias_limited_decel(p, mu, m_cur_bw, F_normal_next),
-        )
-        if ds[i + 1] > 0:
-            v_profile[i] = min(v_profile[i], np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1]))
-
-    time_profile = np.zeros(n)
-    m_fuel_initial = p.initial_fuel_l * p.fuel_density
-
-    for i in range(n):
-        a_lat[i] = v_profile[i] ** 2 / max(radius[i], 1.0)
-        if i > 0 and v_profile[i] > 0:
-            dt = ds[i] / v_profile[i]
-            time_profile[i] = time_profile[i - 1] + dt
-
-            # Authoritative fuel: delivered power reconstructed from the
-            # final speed profile (zero in braking/coasting zones)
-            v_prev_t = v_profile[i - 1]
-            a_actual = ((v_profile[i] ** 2 - v_prev_t ** 2) / (2.0 * ds[i])
-                        if ds[i] > 0 else 0.0)
-            m_cur_t = p.m + max(m_fuel_initial - fuel_acum[i - 1] * p.fuel_density, 0.0)
-            F_drag_t = 0.5 * rho * p.Cx * p.A_front * v_prev_t ** 2
-            F_engine = m_cur_t * a_actual + F_drag_t
-            P_engine = min(max(F_engine, 0.0) * max(v_prev_t, 0.0), p.P_max)
-            fuel_acum[i] = fuel_acum[i - 1] + _fuel_step(
-                P_engine, dt, p.bsfc, p.fuel_density
-            )
+    _backward_pass(v_profile, fuel_acum, p, mu, ds, radius)
+    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius)
+    # Preserve the launch RPM at the start line for telemetry realism
+    channels["rpm_profile"][0] = launch_rpm
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
     return {
-        "time_profile": time_profile,
         "v_profile":    v_profile,
-        "a_long":       a_long,
-        "a_lat":        a_lat,
-        "gear_profile": gear_profile,
-        "rpm_profile":  rpm_profile,
         "temp_tyre":    temp_tyre,
-        "tyre_pressure":p_tyre_hot,
+        "tyre_pressure": p_tyre_hot,
         "fuel_acum":    fuel_acum,
+        **channels,
     }
 
 
@@ -1030,12 +1232,11 @@ def run_simulation(
     torque_map_rpm = params_eff.engine.torque_curve_rpm
     torque_map_nm  = params_eff.engine.torque_curve_nm
 
-    x, y, n, ds, s, radius = _compute_track_geometry(circuit)
+    x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit)
 
     mu          = params_eff.tire.friction_coefficient
     temp_ini    = config.track_temperature_c + 5.0
     p_tyre_cold = config.setup.tyre_pressure_avg_front
-    wheelbase   = params_eff.mass_geometry.wheelbase
 
     if config.is_qualifying() or config.is_thermal():
         v0 = 10.0
@@ -1046,17 +1247,17 @@ def run_simulation(
 
     if config.is_standing_start():
         raw = _run_standing_start(
-            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
             mu=mu, launch_rpm=config.launch_rpm,
             wheelspin_limit=config.wheelspin_limit_slip,
-            fuel_per_km=p.fuel_per_km, temp_ini=temp_ini,
+            temp_ini=temp_ini,
             p_tyre_cold=p_tyre_cold,
             torque_map_rpm=torque_map_rpm,
             torque_map_nm=torque_map_nm,
         )
     elif config.is_thermal():
         raw = _run_endurance_thermal(
-            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
             mu=mu, v0=v0, temp_ini=temp_ini,
             p_tyre_cold=p_tyre_cold,
             torque_map_rpm=torque_map_rpm,
@@ -1066,8 +1267,8 @@ def run_simulation(
         )
     else:
         raw = _run_ggv_solver(
-            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius,
-            mu=mu, v0=v0, fuel_per_km=p.fuel_per_km,
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+            mu=mu, v0=v0,
             temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
             torque_map_rpm=torque_map_rpm,
             torque_map_nm=torque_map_nm,
@@ -1078,9 +1279,6 @@ def run_simulation(
     a_long   = raw["a_long"]
 
     throttle, brake = _driver_inputs_from_accel(a_long, v_ms * 3.6, max_decel=p.max_decel)
-    steering = _steering_from_radius(
-        radius, v_ms, wheelbase=wheelbase, steering_ratio=15.0
-    )
 
     result = SimulationResult(
         lap_time          = lap_time,
@@ -1093,7 +1291,7 @@ def run_simulation(
         ay_lat_g          = raw["a_lat"] / 9.81,
         throttle_pct      = throttle,
         brake_pct         = brake,
-        steering_deg      = steering,
+        steering_deg      = raw["steering_deg"],
         gear              = raw["gear_profile"],
         rpm               = raw["rpm_profile"],
         radius            = radius,
@@ -1105,6 +1303,8 @@ def run_simulation(
         disc_temp_front_c = raw.get("disc_temp_front"),
         disc_temp_rear_c  = raw.get("disc_temp_rear"),
         brake_fade_factor = raw.get("brake_fade_factor"),
+        front_slip_angle_deg = raw["front_slip_angle_deg"],
+        rear_slip_angle_deg  = raw["rear_slip_angle_deg"],
     )
 
     elapsed = _time.perf_counter() - t0
@@ -1215,4 +1415,7 @@ def run_bicycle_model(
         legacy["disc_temp_front"] = result.disc_temp_front_c
         legacy["disc_temp_rear"] = result.disc_temp_rear_c
         legacy["brake_fade_factor"] = result.brake_fade_factor
+    if result.front_slip_angle_deg is not None:
+        legacy["front_slip_angle_deg"] = result.front_slip_angle_deg
+        legacy["rear_slip_angle_deg"] = result.rear_slip_angle_deg
     return legacy

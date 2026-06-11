@@ -107,9 +107,12 @@ def parametros_veiculo_page() -> None:
     st.subheader("🔧 Customize Truck Parameters")
 
     with st.expander("⚖️ Mass & Geometry"):
+        # Minimum aligned with the calibrated presets (4500 kg). The
+        # exact Copa Truck regulatory minimum is pending confirmation
+        # from the technical partner.
         vp.mass_geometry.mass = st.number_input(
-            "Race Mass (kg)", 4950.0, 9000.0,
-            max(float(vp.mass_geometry.mass), 4950.0), step=50.0, key="vp_mass"
+            "Race Mass (kg)", 4500.0, 9000.0,
+            max(float(vp.mass_geometry.mass), 4500.0), step=50.0, key="vp_mass"
         )
         wb = st.number_input(
             "Wheelbase (m)", 3.0, 5.5, float(vp.mass_geometry.wheelbase),
@@ -258,7 +261,14 @@ def parametros_veiculo_page() -> None:
         )
         vp.transmission.shift_time = st.number_input(
             "Shift Time (s)", 0.05, 1.0, float(vp.transmission.shift_time),
-            step=0.05, key="vp_shift_time"
+            step=0.05, key="vp_shift_time",
+            help="Traction is cut for this duration on every upshift."
+        )
+        vp.transmission.transmission_efficiency = st.slider(
+            "Driveline Efficiency", 0.80, 1.00,
+            float(vp.transmission.transmission_efficiency), step=0.01,
+            key="vp_driveline_eff",
+            help="Scales the tractive force delivered to the wheels."
         )
 
     with st.expander("🛑 Brakes"):
@@ -283,6 +293,21 @@ def parametros_veiculo_page() -> None:
             help="Fraction of dissipated kinetic energy absorbed by the "
                  "discs (preliminary thermal model input)."
         )
+        col_abs, col_resp = st.columns(2)
+        with col_abs:
+            vp.brake.abs_enabled = st.toggle(
+                "ABS", value=bool(vp.brake.abs_enabled), key="vp_abs",
+                help="Without ABS a driver-modulation margin reduces "
+                     "the usable braking capacity."
+            )
+        with col_resp:
+            vp.brake.brake_response_time = st.number_input(
+                "Brake Response Time (s)", 0.05, 1.0,
+                float(vp.brake.brake_response_time), step=0.05,
+                key="vp_brake_resp",
+                help="Pneumatic actuation delay — first-order average "
+                     "ramp loss per braking zone."
+            )
 
     with st.expander("🌬️ Aerodynamics"):
         vp.aero.drag_coefficient = st.number_input(
@@ -300,9 +325,10 @@ def parametros_veiculo_page() -> None:
 
     st.markdown("---")
     if st.button("💾 Save Truck Setup", width="stretch", type="primary"):
-        # Enforce regulatory mass of 4950 kg (vehicle + pilot)
-        if vp.mass_geometry.mass < 4950.0:
-            vp.mass_geometry.mass = 4950.0
+        # Enforce the preset minimum race mass (regulatory minimum to be
+        # confirmed with the technical partner)
+        if vp.mass_geometry.mass < 4500.0:
+            vp.mass_geometry.mass = 4500.0
         st.session_state.vehicle_params = vp
         st.session_state.setup = None
         st.session_state.confirmed_mode = "Copa Truck"
