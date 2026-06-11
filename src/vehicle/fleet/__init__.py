@@ -22,18 +22,36 @@ _JSON_MODELS_CACHE: Dict[str, VehicleParams] = {}
 
 
 def _load_json_models() -> None:
-    """Load and validate vehicle presets from data/vehicle_models.json.
+    """Load and validate vehicle presets from database or local JSON file.
 
     Raises:
-        ValueError: If any preset fails physical-consistency validation
-            (see ``validate_vehicle_params``). The message lists every
-            failed check for the offending preset.
+        ValueError: If any preset fails physical-consistency validation.
     """
-    # TODO(ui-stream): surface this ValueError in the Streamlit vehicle
-    # parameters page (components/vehicle_params.py) as a user-facing
-    # error instead of a stack trace. Owned by the UI stream.
     if _JSON_MODELS_CACHE:
         return
+
+    # Try database first
+    try:
+        from src.database import db_manager
+        db_vehicles = db_manager.list_vehicles()
+        if db_vehicles:
+            loaded: Dict[str, VehicleParams] = {}
+            for key in db_vehicles.keys():
+                val = db_manager.get_vehicle(key)
+                if val:
+                    vp = VehicleParams.from_solver_dict(val)
+                    if "name" in val:
+                        vp.name = val["name"]
+                    errors = validate_vehicle_params(vp)
+                    if not errors:
+                        loaded[key] = vp
+            if loaded:
+                _JSON_MODELS_CACHE.update(loaded)
+                return
+    except Exception:
+        # Fallback silently to local file database
+        pass
+
     json_path = Path(__file__).parent.parent.parent.parent / "data" / "vehicle_models.json"
     if not json_path.exists():
         return

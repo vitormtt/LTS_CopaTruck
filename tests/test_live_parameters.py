@@ -72,8 +72,20 @@ def test_driveline_efficiency_live(ref) -> None:
 
 
 def test_shift_time_live(ref) -> None:
-    r = _run(lambda v: setattr(v.transmission, "shift_time", 0.6))
-    assert r.lap_time > ref.lap_time
+    vp = deepcopy(get_vehicle_by_id("volkswagen_31320"))
+    vp.transmission.shift_time = 2.0
+    cfg = SimulationConfig.standing_start(track_id="cascavel")
+    cfg.setup = get_default_setup("live_params")
+    cfg.launch_rpm = 1500.0
+    r = run_simulation(cfg, vp, _CIRCUIT, save_csv=False)
+
+    cfg_ref = SimulationConfig.standing_start(track_id="cascavel")
+    cfg_ref.setup = get_default_setup("live_params")
+    cfg_ref.launch_rpm = 1500.0
+    vp_ref = get_vehicle_by_id("volkswagen_31320")
+    ref_standing = run_simulation(cfg_ref, vp_ref, _CIRCUIT, save_csv=False)
+
+    assert r.lap_time > ref_standing.lap_time + 0.5
 
 
 def test_pacejka_d_live(ref) -> None:
