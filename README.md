@@ -1,67 +1,74 @@
-# LapTimeSimulator — Copa Truck / Carrera Cup
+# LapTimeSimulator — Copa Truck
 
-Quasi-steady-state lap time simulator for motorsport vehicles. Developed by SARU Dynamics.
+Quasi-steady-state (QSS) lap time simulator for motorsport vehicles. Developed by SARU Dynamics.
 
-Supports Copa Truck (diesel, pneumatic brakes) and Porsche Carrera Cup Brasil fleet (GT3 991.1, 991.2, 992.1), with a modular architecture designed for multi-vehicle comparison, setup optimization, and real telemetry validation.
+Supports the Copa Truck fleet (diesel race trucks), with setup sweeps, batch simulation, setup optimization and real telemetry comparison.
 
 ---
 
 ## Architecture
 
+The solver is **self-contained**: all physics (load transfer, aero, ARB, gear selection, tyre thermal, BSFC fuel, brake fade) lives inside `lap_time_solver.py` and operates directly on `VehicleParams`. An earlier parallel modular architecture (BicycleVehicle2DOF, ThermalPacejkaTire, Pneumatic/HydraulicBrake, driver model, standalone optimizer, KPI dashboard) had no live callers and is archived under `_archive/dead_modules/` for reference.
+
 ```
 src/
 ├── simulation/
-│   ├── lap_time_solver.py      ← GGV forward-backward solver; run_simulation() + run_bicycle_model()
+│   ├── lap_time_solver.py      ← QSS forward-backward solver with internal physics;
+│   │                              run_simulation() + run_bicycle_model()
 │   ├── simulation_modes.py     ← SimulationMode enum + SimulationConfig dataclass
-│   ├── driver_model.py         ← DriverInputs dataclass; throttle/brake/steering derivation
-│   ├── telemetry.py            ← telemetry channel definitions
-│   └── validation.py           ← simulation vs. real telemetry comparator (Pi Toolbox / MoTeC)
+│   └── telemetry.py            ← telemetry channel definitions
 ├── vehicle/
-│   ├── parameters.py           ← VehicleParams + sub-dataclasses (SSoT)
+│   ├── parameters.py           ← VehicleParams + sub-dataclasses (SSoT) + validate_vehicle_params()
 │   ├── setup.py                ← VehicleSetup; apply_setup(); ARB + wing + tyre pressure model
-│   ├── fleet/                  ← porsche_gt3_991_1, 991_2, 992_1 presets
-│   ├── engine.py               ← ICEEngine; torque curve interpolation
+│   ├── fleet/                  ← fleet registry; loads validated presets from data/vehicle_models.json
+│   ├── engine.py               ← ICEEngine; torque curve interpolation (used by the torque curve editor;
+│   │                              mirrored by the solver's BSFC fuel model)
 │   ├── transmission.py         ← Transmission; gear selection
-│   ├── tires.py                ← ThermalPacejkaTire
-│   ├── brakes.py               ← PneumaticBrake
-│   └── vehicle_model.py        ← BicycleVehicle2DOF; composed vehicle object
+│   └── units.py                ← psi↔bar conversion helpers
 ├── tracks/
-│   ├── hdf5.py                 ← CircuitHDF5Reader / Writer
+│   ├── hdf5.py                 ← CircuitHDF5Reader / Writer (tracks/*.hdf5, tracks/custom/)
 │   ├── circuit.py              ← CircuitData dataclass
 │   ├── generate_br_tracks.py   ← build_interlagos_real() from GPS waypoints
+│   ├── telemetry_converter.py  ← AiM .xrk/.xrz → CSV (requires libxrk)
 │   └── osm.py / tumftm.py      ← OSM and TUM FTM track loaders
-├── optimization/
-│   └── optimization.py         ← speed-profile optimizer (scipy); setup sweep
 └── visualization/
-    ├── interface.py             ← Streamlit dashboard
-    ├── kpi_dashboard.py         ← KPI tables and lap-time comparison charts
-    └── track_plotter.py         ← speed map and track overlay plots
+    ├── interface.py             ← Streamlit app entry point
+    └── components/              ← one module per UI page:
+        Parameters · Track · Simulation · Batch Simulation · Results ·
+        Compare · Optimization  (+ torque curve editor, shared helpers)
+
+_archive/
+├── dead_modules/                ← archived parallel architecture (no live callers)
+└── scripts/                     ← orphan root scripts (legacy Porsche e2e, module probes)
 ```
 
 ### Simulation model
 
-**Bicycle model 2-DOF** with GGV forward-backward solver:
+**Bicycle model 2-DOF** with QSS forward-backward solver:
 
 1. **Forward pass** — maximum acceleration limited by traction (engine + grip) and lateral speed limit at each corner.
 2. **Backward pass** — braking to not exceed corner-entry speed.
 3. **Time/thermal pass** — cumulative lap time, tyre temperature, fuel consumption.
 
-Physics extensions:
+Physics (internal to the solver):
 - Longitudinal load transfer (pitch: squat on acceleration, dive on braking)
 - Aerodynamic downforce and drag updating normal load and grip
 - ARB load-sensitivity model: lateral load transfer distributed front/rear by ARB stiffness ratio; grip penalty proportional to per-axle overload
-- Diesel torque curve (interpolated map or parametric) / GT3 torque curve
+- Diesel torque curve (interpolated map, editable per model in the UI)
 - Gear selection maximising drive force within RPM band
+- Brake bias coupled to longitudinal load transfer (first-axle-lockup cap)
 - Tyre thermal model (bulk temperature and hot pressure estimate)
-- Fuel consumption from power demand
+- **Dynamic fuel consumption**: BSFC × instantaneous power × dt; burned mass feeds back into vehicle dynamics
+- Brake disc thermal model with temperature-dependent fade (`ENDURANCE_THERMAL`)
 
 ### Simulation modes
 
 | Mode | Description |
 |------|-------------|
 | `QUALIFYING` | Single lap from equilibrium speed (default) |
-| `FLYING_LAP` | Lap from prescribed entry speed (`v_entry_kmh`) |
 | `STANDING_START` | Lap from rest with clutch-ramp wheelspin model |
+| `ENDURANCE_THERMAL` | Qualifying-style lap with brake disc heat model and temperature-dependent brake fade |
+| `FLYING_LAP` | Lap from prescribed entry speed (`v_entry_kmh`) |
 | `ROLLING_START` | Alias for `FLYING_LAP` (backward compatibility) |
 
 ### Vehicle setup (`VehicleSetup`)
@@ -80,13 +87,15 @@ Discrete + continuous parameters applied to a base `VehicleParams` before solvin
 
 ## Fleet
 
+Presets are defined in `data/vehicle_models.json` and validated on load (`validate_vehicle_params`):
+
 | ID | Vehicle | Power |
 |----|---------|-------|
-| `porsche_991_1` | Porsche 911 GT3 Cup (991 Phase 1) | 338 kW |
-| `porsche_991_2` | Porsche 911 GT3 Cup (991 Phase 2) | 338 kW |
-| `porsche_992_1` | Porsche 911 GT3 Cup (992 Phase 1) | 373 kW |
+| `volkswagen_31320` | VW 31320 (Copa Truck Racing) | 850 kW |
+| `scania_r480` | Scania R480 (Racing Tuned) | 880 kW |
+| `volvo_fh16` | Volvo FH16 (Racing Tuned) | 900 kW |
 
-Copa Truck default: `copa_truck_2dof_default()` — Mercedes-Benz Actros 600 kW, 12-speed automatic, `gear_min=4`.
+Code default: `copa_truck_2dof_default()` — Mercedes-Benz Actros 600 kW, 12-speed automatic, `gear_min=4`.
 
 ---
 
@@ -113,7 +122,7 @@ from src.vehicle.setup import get_default_setup
 from src.tracks.hdf5 import CircuitHDF5Reader
 
 circuit, _ = CircuitHDF5Reader("tracks/interlagos.hdf5").read_circuit()
-vehicle    = get_vehicle_by_id("porsche_991_1")
+vehicle    = get_vehicle_by_id("volkswagen_31320")
 config     = SimulationConfig(mode=SimulationMode.QUALIFYING, setup=get_default_setup())
 
 result = run_simulation(config, vehicle, circuit)
@@ -128,7 +137,9 @@ result.save_csv("out.csv")
 | Path | Content |
 |------|---------|
 | `tracks/interlagos.hdf5` | Interlagos centerline (GPS reference) |
-| `data/vehicle_models.json` | Vehicle preset definitions |
+| `tracks/cascavel.hdf5` | Cascavel centerline |
+| `tracks/custom/` | User-saved tracks from the UI |
+| `data/vehicle_models.json` | Vehicle preset definitions (validated on load) |
 
 ---
 

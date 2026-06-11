@@ -11,7 +11,7 @@ Date: 2026-06-10
 import json
 from pathlib import Path
 from typing import Dict, Callable
-from ..parameters import VehicleParams
+from ..parameters import VehicleParams, validate_vehicle_params
 
 
 # Registry: vehicle_id -> factory function (presets load from JSON below)
@@ -22,19 +22,43 @@ _JSON_MODELS_CACHE: Dict[str, VehicleParams] = {}
 
 
 def _load_json_models() -> None:
-    if not _JSON_MODELS_CACHE:
-        json_path = Path(__file__).parent.parent.parent.parent / "data" / "vehicle_models.json"
-        if json_path.exists():
-            try:
-                with open(json_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                for key, val in data.items():
-                    vp = VehicleParams.from_solver_dict(val)
-                    if "name" in val:
-                        vp.name = val["name"]
-                    _JSON_MODELS_CACHE[key] = vp
-            except Exception:
-                pass
+    """Load and validate vehicle presets from data/vehicle_models.json.
+
+    Raises:
+        ValueError: If any preset fails physical-consistency validation
+            (see ``validate_vehicle_params``). The message lists every
+            failed check for the offending preset.
+    """
+    # TODO(ui-stream): surface this ValueError in the Streamlit vehicle
+    # parameters page (components/vehicle_params.py) as a user-facing
+    # error instead of a stack trace. Owned by the UI stream.
+    if _JSON_MODELS_CACHE:
+        return
+    json_path = Path(__file__).parent.parent.parent.parent / "data" / "vehicle_models.json"
+    if not json_path.exists():
+        return
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        # Unreadable/corrupt preset file: behave as before (empty fleet).
+        return
+
+    loaded: Dict[str, VehicleParams] = {}
+    for key, val in data.items():
+        vp = VehicleParams.from_solver_dict(val)
+        if "name" in val:
+            vp.name = val["name"]
+        errors = validate_vehicle_params(vp)
+        if errors:
+            raise ValueError(
+                f"Invalid vehicle preset '{key}' in {json_path.name}: "
+                + "; ".join(errors)
+            )
+        loaded[key] = vp
+    # Only publish the cache once every preset validated cleanly, so a
+    # failing preset cannot leave a partially populated fleet behind.
+    _JSON_MODELS_CACHE.update(loaded)
 
 
 def get_vehicle_by_id(vehicle_id: str) -> VehicleParams:
