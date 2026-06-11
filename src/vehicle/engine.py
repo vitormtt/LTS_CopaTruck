@@ -97,7 +97,7 @@ class ICEEngine(BasePowertrain):
             ]) * self.max_torque_nm
 
             # Deduplicate: when max_torque_rpm == max_power_rpm == redline_rpm
-            # (common for GT3 configs passed without full curve), np.unique
+            # (common for configs passed without a full curve), np.unique
             # removes duplicates and keeps first occurrence.
             _, unique_idx = np.unique(rpm_raw, return_index=True)
             rpm_pts = rpm_raw[unique_idx]

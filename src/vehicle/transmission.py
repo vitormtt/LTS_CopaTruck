@@ -38,8 +38,9 @@ class Transmission:
         Seleciona marcha ótima baseado em velocidade e RPM alvo.
 
         Uses upshift_rpm / downshift_rpm to define the target RPM band.
-        For GT3 Cup (upshift ~8550, downshift ~5700) the band is very
-        different from Copa Truck (upshift ~2500, downshift ~1200).
+        For a high-revving petrol racecar (upshift ~8550, downshift ~5700)
+        the band is very different from Copa Truck (upshift ~2500,
+        downshift ~1200).
         """
         wheel_rpm = (vehicle_speed_ms * 60) / \
             (2 * np.pi * max(wheel_radius_m, 0.1))

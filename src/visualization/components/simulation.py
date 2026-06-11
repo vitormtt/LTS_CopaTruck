@@ -44,8 +44,8 @@ def simulacao_page() -> None:
                 params_dict = vp.to_solver_dict()
                 params_dict.setdefault("track_width", 2.5)
 
-                # Set minimum gear limit based on vehicle type (Trucks don't use gears 1-3 on racing speed)
-                gear_min = 1 if mode == "Porsche GT3 Cup" else 4
+                # Trucks don't use gears 1-3 at racing speed
+                gear_min = 4
                 solver_config = {"gear_min": gear_min}
 
                 # Construct result filepath

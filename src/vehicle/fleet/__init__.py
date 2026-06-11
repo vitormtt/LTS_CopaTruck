@@ -14,7 +14,7 @@ from typing import Dict, Callable
 from ..parameters import VehicleParams
 
 
-# Registry: vehicle_id -> factory function (empty since Porsche is archived)
+# Registry: vehicle_id -> factory function (presets load from JSON below)
 _FLEET_REGISTRY: Dict[str, Callable[[], VehicleParams]] = {}
 
 # Dynamic loading of JSON models (Copa Truck presets)

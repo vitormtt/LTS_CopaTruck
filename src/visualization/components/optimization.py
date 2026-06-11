@@ -26,12 +26,8 @@ def optimization_page() -> None:
         st.warning("⚠️ Select a track in the 'Track' tab first.")
         return
 
-    mode = st.session_state.get("confirmed_mode") or st.session_state.get("vehicle_mode", "Copa Truck")
-    if mode != "Porsche GT3 Cup":
-        st.warning(
-            "Setup optimization is currently only available for **Porsche GT3 Cup** mode. "
-            "Go to the **Parameters** tab, select Porsche GT3 Cup, and click **Save Setup & Parameters**."
-        )
+    if st.session_state.vehicle_params is None or not st.session_state.params_saved:
+        st.warning("⚠️ Configure and **save** a vehicle in the 'Parameters' tab first.")
         return
 
     st.caption(
@@ -89,11 +85,11 @@ def optimization_page() -> None:
             params_dict = params.to_solver_dict()
 
             try:
-                # Minimum gear 1 for Porsche GT3 Cup
+                # Trucks don't use gears 1-3 at racing speed
                 r = cached_solver(
                     params_dict=params_dict,
                     circuit=circuit,
-                    config={"gear_min": 1},
+                    config={"gear_min": 4},
                     save_csv=False
                 )
                 results_opt.append({
