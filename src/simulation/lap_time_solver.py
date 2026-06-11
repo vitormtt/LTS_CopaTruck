@@ -65,6 +65,8 @@ class _LegacyVehicleParams:
     gear_ratios: list = None
     final_drive: float = 5.33
     max_decel: float = 7.5
+    brake_balance: float = 58.0
+    max_brake_force: float = 50000.0
     Cx: float = 0.85
     A_front: float = 8.7
     Cl: float = 0.0
@@ -375,6 +377,53 @@ def _steering_from_radius(
     return delta_deg
 
 
+def _bias_limited_decel(
+    p: _LegacyVehicleParams,
+    mu_eff: float,
+    m_cur: float,
+    F_normal: float,
+) -> float:
+    """
+    Maximum deceleration before either axle locks, given the brake bias.
+
+    Under deceleration ``a`` the longitudinal load transfer shifts
+    ``m*a*h_cg/L`` from the rear axle to the front axle. With a front
+    bias fraction ``b`` the first-lock deceleration per axle is:
+
+        front-limited: a_f = mu*g_eff*(lr/L) / (b - mu*h_cg/L)
+        rear-limited:  a_r = mu*g_eff*(lf/L) / ((1-b) + mu*h_cg/L)
+
+    where ``g_eff = F_normal/m_cur`` accounts for aerodynamic downforce.
+    The front limit only exists when ``b > mu*h_cg/L`` (otherwise load
+    transfer keeps the front axle below lock-up at any deceleration).
+    The total brake-force capacity caps the result as well.
+
+    References: Limpert (1999), Brake Design and Safety, ch. 7.
+
+    Args:
+        p: Flat solver parameters (geometry, brake bias, brake force).
+        mu_eff: Effective tyre-road friction coefficient [-].
+        m_cur: Current vehicle mass including fuel [kg].
+        F_normal: Total normal force including downforce [N].
+
+    Returns:
+        Maximum bias-limited deceleration [m/s²].
+    """
+    g_eff = F_normal / m_cur
+    b = p.brake_balance / 100.0
+    mu_h_over_l = mu_eff * p.h_cg / p.L
+
+    a_rear = mu_eff * g_eff * (p.lf / p.L) / ((1.0 - b) + mu_h_over_l)
+    candidates = [a_rear]
+
+    if b > mu_h_over_l:
+        a_front = mu_eff * g_eff * (p.lr / p.L) / (b - mu_h_over_l)
+        candidates.append(a_front)
+
+    candidates.append(p.max_brake_force / m_cur)
+    return max(min(candidates), 0.0)
+
+
 # ---------------------------------------------------------------------------
 # Core GGV solver
 # ---------------------------------------------------------------------------
@@ -495,7 +544,8 @@ def _run_ggv_solver(
         F_normal_next    = m_cur_bw * g + F_downforce_next
         a_decel_max = min(
             np.sqrt(max(0.0, (mu_eff_bwd * F_normal_next / m_cur_bw) ** 2 - a_lat_next ** 2)),
-            p.max_decel
+            p.max_decel,
+            _bias_limited_decel(p, mu_eff_bwd, m_cur_bw, F_normal_next),
         )
         if ds[i + 1] > 0:
             v_brake_limit = np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1])
@@ -627,7 +677,8 @@ def _run_standing_start(
         F_normal_next    = m_cur_bw * g + F_downforce_next
         a_decel_max = min(
             np.sqrt(max(0.0, (mu * F_normal_next / m_cur_bw) ** 2 - a_lat_next ** 2)),
-            p.max_decel
+            p.max_decel,
+            _bias_limited_decel(p, mu, m_cur_bw, F_normal_next),
         )
         if ds[i + 1] > 0:
             v_profile[i] = min(v_profile[i], np.sqrt(v_next ** 2 + 2 * a_decel_max * ds[i + 1]))
@@ -779,7 +830,11 @@ def run_bicycle_model(
     """
     from ..vehicle.parameters import VehicleParams as StructuredVehicleParams
     from .simulation_modes import SimulationConfig, SimulationMode
-    from ..vehicle.setup import get_default_setup
+    from ..vehicle.setup import (
+        get_default_setup,
+        _TYRE_PRESSURE_MIN,
+        _TYRE_PRESSURE_MAX,
+    )
 
     vp = StructuredVehicleParams.from_solver_dict(params_dict)
 
@@ -804,6 +859,14 @@ def run_bicycle_model(
         tyre_compound="slick_dry",
         export_driver_inputs=True,
     )
+    # Propagate the vehicle's cold tyre pressure into the setup so the
+    # pressure input actually reaches the solver (hot-pressure trace and
+    # grip scaling via apply_setup).
+    p_cold = params_dict.get('P_cold_bar')
+    if p_cold is not None:
+        sim_config.setup.tyre_pressure = float(
+            np.clip(p_cold, _TYRE_PRESSURE_MIN, _TYRE_PRESSURE_MAX)
+        )
     if sim_mode == SimulationMode.STANDING_START:
         sim_config.launch_rpm = float(config.get("launch_rpm", 1500.0))
         sim_config.wheelspin_limit_slip = float(config.get("wheelspin_limit", 0.15))

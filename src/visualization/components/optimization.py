@@ -15,6 +15,7 @@ import streamlit as st
 
 from src.vehicle.fleet import get_vehicle_by_id
 from src.vehicle.setup import VehicleSetup, apply_setup
+from src.vehicle.units import psi_to_bar
 from .helpers import cached_solver, fmt_laptime, init_session_state
 
 
@@ -37,7 +38,11 @@ def optimization_page() -> None:
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        pressure = st.number_input("Tyre Pressure (bar)", 1.4, 2.4, 1.8, step=0.05, key="opt_pressure")
+        pressure_psi = st.number_input(
+            "Tyre Pressure (psi)", 20.5, 34.5, 26.0, step=0.5, key="opt_pressure"
+        )
+        pressure = psi_to_bar(pressure_psi)
+        st.caption(f"= {pressure:.2f} bar")
     with col_p2:
         bias = st.slider("Brake Bias", -2.0, 0.0, -1.0, step=0.5, key="opt_bias")
 
