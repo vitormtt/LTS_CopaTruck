@@ -415,6 +415,46 @@ def resultados_page() -> None:
                                margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig_flow, width="stretch")
 
+    # --- Brake disc thermal channels (ENDURANCE_THERMAL mode only) ---
+    if 'disc_temp_front' in res:
+        st.markdown("---")
+        st.subheader("🔥 Brake Thermal Analysis")
+        vp_brake = getattr(vp, 'brake', None)
+        fade_onset = float(getattr(vp_brake, 'fade_onset_temp_c', 450.0))
+
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            fig_disc = go.Figure()
+            fig_disc.add_trace(go.Scatter(
+                x=dist, y=res['disc_temp_front'], mode='lines',
+                name='Front disc', line=dict(color='crimson', width=2)))
+            fig_disc.add_trace(go.Scatter(
+                x=dist, y=res['disc_temp_rear'], mode='lines',
+                name='Rear disc', line=dict(color='darkblue', width=2)))
+            fig_disc.add_hline(y=fade_onset, line_dash='dash',
+                               line_color='orange',
+                               annotation_text='Fade onset')
+            fig_disc.update_layout(title='Brake Disc Temperature (°C)',
+                                   height=300,
+                                   margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_disc, width="stretch")
+        with col_t2:
+            fig_fade = go.Figure()
+            fig_fade.add_trace(go.Scatter(
+                x=dist, y=res['brake_fade_factor'], mode='lines',
+                name='Fade factor', line=dict(color='darkorange', width=2)))
+            fig_fade.update_layout(title='Brake Fade Factor (1.0 = full capacity)',
+                                   height=300, yaxis_range=[0.4, 1.05],
+                                   margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_fade, width="stretch")
+
+        peak_disc = float(max(np.max(res['disc_temp_front']),
+                              np.max(res['disc_temp_rear'])))
+        min_fade = float(np.min(res['brake_fade_factor']))
+        col_m1, col_m2, _, _ = st.columns(4)
+        col_m1.metric("Peak Disc Temp", f"{peak_disc:.0f} °C")
+        col_m2.metric("Worst Fade Factor", f"{min_fade:.2f}")
+
     # --- Roll & Slip ---
     col_g7, col_g8 = st.columns(2)
     with col_g7:

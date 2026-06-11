@@ -63,6 +63,15 @@ def main() -> None:
             "track_id": "interlagos",
             "mode": "qualifying"
         },
+        {
+            "id": "vw_31320_cascavel_endurance_thermal",
+            "vehicle_id": "volkswagen_31320",
+            "track_id": "cascavel",
+            "mode": "endurance_thermal",
+            # Lower fade onset so the fade feedback path is exercised
+            # (default 450degC stays below the ~370degC single-lap peak)
+            "brake_overrides": {"fade_onset_temp_c": 300.0},
+        },
 
     ]
     
@@ -90,12 +99,18 @@ def main() -> None:
             
         circuit, _ = CircuitHDF5Reader(track_path).read_circuit()
         
+        # Apply per-case brake overrides (e.g. fade onset for thermal cases)
+        for field_name, value in case.get("brake_overrides", {}).items():
+            setattr(vp.brake, field_name, value)
+
         # Configure simulation
         if mode == "qualifying":
             sim_config = SimulationConfig.qualifying(track_id=track_id)
         elif mode == "standing_start":
             sim_config = SimulationConfig.standing_start(track_id=track_id)
             sim_config.launch_rpm = 1500.0  # Diesel truck launch RPM
+        elif mode == "endurance_thermal":
+            sim_config = SimulationConfig.endurance_thermal(track_id=track_id)
         else:
             raise ValueError(f"Unknown mode: {mode}")
             
@@ -109,6 +124,8 @@ def main() -> None:
             "vehicle_id": vehicle_id,
             "track_id": track_id,
             "mode": mode,
+            **({"brake_overrides": case["brake_overrides"]}
+               if case.get("brake_overrides") else {}),
             "lap_time": float(result.lap_time),
             "avg_speed_kmh": float(result.avg_speed_kmh),
             "max_speed_kmh": float(result.max_speed_kmh),
@@ -124,6 +141,15 @@ def main() -> None:
                 "temp_tyre_c": compute_array_stats(result.temp_tyre_c),
             }
         }
+
+        # Thermal-mode channels (present only for ENDURANCE_THERMAL cases)
+        if result.disc_temp_front_c is not None:
+            baselines[case_id]["channels"]["disc_temp_front_c"] = \
+                compute_array_stats(result.disc_temp_front_c)
+            baselines[case_id]["channels"]["disc_temp_rear_c"] = \
+                compute_array_stats(result.disc_temp_rear_c)
+            baselines[case_id]["channels"]["brake_fade_factor"] = \
+                compute_array_stats(result.brake_fade_factor)
         
     output_path = ROOT / "tests" / "regression_baselines.json"
     with open(output_path, "w", encoding="utf-8") as f:
