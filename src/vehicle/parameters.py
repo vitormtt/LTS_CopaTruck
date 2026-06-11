@@ -88,9 +88,24 @@ class TireParams:
     # Cold tyre pressure (passed to ThermalPacejkaTire)
     cold_pressure_bar: float = 1.8  # Cold tyre pressure [bar]
 
+    # Individual cold tyre pressures [psi]
+    cold_pressure_lf_psi: float = 26.1
+    cold_pressure_fr_psi: float = 26.1
+    cold_pressure_lr_psi: float = 26.1
+    cold_pressure_rr_psi: float = 26.1
+
     # Thermal model (future tire temperature simulation)
     thermal_capacity: float = 0.0      # Tire thermal capacity [J/K]
     thermal_conductivity: float = 0.0  # Thermal conductivity [W/(m·K)]
+
+    def __post_init__(self):
+        # Synchronize psi values if loading a legacy preset that only has cold_pressure_bar
+        if self.cold_pressure_bar != 1.8 and self.cold_pressure_lf_psi == 26.1:
+            psi_val = self.cold_pressure_bar * 14.5038
+            self.cold_pressure_lf_psi = psi_val
+            self.cold_pressure_fr_psi = psi_val
+            self.cold_pressure_lr_psi = psi_val
+            self.cold_pressure_rr_psi = psi_val
 
 
 @dataclass
@@ -298,9 +313,16 @@ class VehicleParams:
         if 'track_width' in mg and 'track_width_front' not in mg:
             mg['track_width_front'] = mg.pop('track_width')
             mg['track_width_rear'] = mg['track_width_front']
+        tire_data = dict(data['tire'])
+        if 'cold_pressure_lf_psi' not in tire_data:
+            bar_val = tire_data.get('cold_pressure_bar', 1.8)
+            tire_data['cold_pressure_lf_psi'] = bar_val * 14.5038
+            tire_data['cold_pressure_fr_psi'] = bar_val * 14.5038
+            tire_data['cold_pressure_lr_psi'] = bar_val * 14.5038
+            tire_data['cold_pressure_rr_psi'] = bar_val * 14.5038
         return cls(
             mass_geometry=VehicleMassGeometry(**mg),
-            tire=TireParams(**data['tire']),
+            tire=TireParams(**tire_data),
             aero=AeroParams(**data['aero']),
             engine=EngineParams(**data['engine']),
             transmission=TransmissionParams(**data['transmission']),
@@ -365,6 +387,10 @@ class VehicleParams:
             'pacejka_D': self.tire.pacejka_D,
             'pacejka_E': self.tire.pacejka_E,
             'P_cold_bar': self.tire.cold_pressure_bar,
+            'P_cold_lf_psi': self.tire.cold_pressure_lf_psi,
+            'P_cold_fr_psi': self.tire.cold_pressure_fr_psi,
+            'P_cold_lr_psi': self.tire.cold_pressure_lr_psi,
+            'P_cold_rr_psi': self.tire.cold_pressure_rr_psi,
 
             # --- Engine ---
             'P_max': self.engine.max_power,
@@ -449,6 +475,10 @@ class VehicleParams:
                 pacejka_D=data.get('pacejka_D', 1.0),
                 pacejka_E=data.get('pacejka_E', 0.97),
                 cold_pressure_bar=data.get('P_cold_bar', 1.8),
+                cold_pressure_lf_psi=data.get('P_cold_lf_psi', data.get('P_cold_bar', 1.8) * 14.5038),
+                cold_pressure_fr_psi=data.get('P_cold_fr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
+                cold_pressure_lr_psi=data.get('P_cold_lr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
+                cold_pressure_rr_psi=data.get('P_cold_rr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
             ),
             aero=AeroParams(
                 drag_coefficient=data.get('Cx', 0.85),
