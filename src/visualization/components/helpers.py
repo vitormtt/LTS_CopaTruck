@@ -37,6 +37,40 @@ def fmt_laptime(s: float) -> str:
     return f"{int(s // 60)}:{s % 60:06.3f}"
 
 
+def slugify_id(text: str) -> str:
+    """Normalize free text into a storage id (lowercase snake_case)."""
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
+    return re.sub(r"_+", "_", slug)[:50]
+
+
+def persist_simulation_result(
+    vehicle_id: str,
+    track_name: str,
+    mode: str,
+    setup_name: str,
+    result: dict,
+    csv_path: str = None,
+) -> bool:
+    """Aggregate KPIs from a solver result and persist them.
+
+    Storage goes through db_manager (PostgreSQL simulation_results table,
+    JSON fallback) so every run becomes part of the queryable history.
+    """
+    from src.database import db_manager
+    from src.simulation.kpis import compute_kpis
+
+    kpis = compute_kpis(result)
+    return db_manager.save_simulation_result(
+        vehicle_id=vehicle_id,
+        track_id=slugify_id(track_name),
+        mode=mode,
+        setup_name=setup_name,
+        csv_path=csv_path,
+        **kpis,
+    )
+
+
 def _solver_cache_key(params_dict: dict, circuit: Any, config: dict) -> str:
     """Build a deterministic SHA256 hash from solver inputs for caching."""
     parts = []

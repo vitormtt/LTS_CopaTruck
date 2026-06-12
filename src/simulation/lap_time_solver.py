@@ -546,6 +546,18 @@ _S_LOAD = 0.12
 # (the "full car" tyre model). Off by default: not yet calibrated against
 # real telemetry — see the note inside _axle_grip().
 _THERMAL_GRIP_COUPLING = False
+
+# Optimum cold-pressure for the p_factor curve. Copa Truck regulation
+# tyres are heavy-truck radials (295/80 R22.5 per the 2024-2026 CBA
+# research dossier, docs/COPA_TRUCK_POWERTRAIN_RESEARCH.md) operating
+# around 95-125 psi — NOT the ~34 psi passenger-car optimum previously
+# hardcoded. The CBA rulebook does not mandate a pressure, so this is an
+# operating-range estimate: calibrate with Perez telemetry before
+# enabling _THERMAL_GRIP_COUPLING. The quadratic loss factor is rescaled
+# to keep the same relative sensitivity over the 10x wider psi range.
+_P_OPT_PSI = 110.0
+_P_FACTOR_K = 1.5e-5   # was 0.0015 on the ~34 psi car scale
+
 # Fraction of the peak axle lateral force usable as yaw-moment authority
 # during direction changes (quasi-transient extension)
 _YAW_MOMENT_FACTOR = 0.5
@@ -641,26 +653,26 @@ def _axle_grip(
     # track heats tyres faster and gained more from t_factor than it lost
     # to load transfer). Per-wheel temperature/pressure stay live as
     # telemetry channels; re-enable only with cross-validation (Golden
-    # Rule 2). Note: p_opt=34 psi is a passenger-car optimum — Copa Truck
-    # tyres (315/70 R22.5) run ~95-120 psi cold; recalibrate with Pérez.
+    # Rule 2). _P_OPT_PSI/_P_FACTOR_K are sized for the regulation truck
+    # tyre pressure range — see the module constants and the dossier in
+    # docs/COPA_TRUCK_POWERTRAIN_RESEARCH.md.
     if _THERMAL_GRIP_COUPLING:
-        p_opt = 34.0
         T_opt = 80.0
 
         P_hot_lf = p.P_cold_lf_psi + 0.174 * (temp_lf - _T_AMBIENT_TYRE)
-        p_factor_lf = max(1.0 - 0.0015 * (P_hot_lf - p_opt) ** 2, 0.5)
+        p_factor_lf = max(1.0 - _P_FACTOR_K * (P_hot_lf - _P_OPT_PSI) ** 2, 0.5)
         t_factor_lf = max(1.0 - 0.00005 * (temp_lf - T_opt) ** 2, 0.5)
 
         P_hot_fr = p.P_cold_fr_psi + 0.174 * (temp_fr - _T_AMBIENT_TYRE)
-        p_factor_fr = max(1.0 - 0.0015 * (P_hot_fr - p_opt) ** 2, 0.5)
+        p_factor_fr = max(1.0 - _P_FACTOR_K * (P_hot_fr - _P_OPT_PSI) ** 2, 0.5)
         t_factor_fr = max(1.0 - 0.00005 * (temp_fr - T_opt) ** 2, 0.5)
 
         P_hot_lr = p.P_cold_lr_psi + 0.174 * (temp_lr - _T_AMBIENT_TYRE)
-        p_factor_lr = max(1.0 - 0.0015 * (P_hot_lr - p_opt) ** 2, 0.5)
+        p_factor_lr = max(1.0 - _P_FACTOR_K * (P_hot_lr - _P_OPT_PSI) ** 2, 0.5)
         t_factor_lr = max(1.0 - 0.00005 * (temp_lr - T_opt) ** 2, 0.5)
 
         P_hot_rr = p.P_cold_rr_psi + 0.174 * (temp_rr - _T_AMBIENT_TYRE)
-        p_factor_rr = max(1.0 - 0.0015 * (P_hot_rr - p_opt) ** 2, 0.5)
+        p_factor_rr = max(1.0 - _P_FACTOR_K * (P_hot_rr - _P_OPT_PSI) ** 2, 0.5)
         t_factor_rr = max(1.0 - 0.00005 * (temp_rr - T_opt) ** 2, 0.5)
     else:
         p_factor_lf = t_factor_lf = 1.0
