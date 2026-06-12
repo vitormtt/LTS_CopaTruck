@@ -79,8 +79,16 @@ def compare_page() -> None:
             if uf.name.endswith(".xrk") or uf.name.endswith(".xrz"):
                 import os
                 from src.visualization.components.helpers import RESULTS_PATH
-                from src.tracks.telemetry_converter import convert_xrk_to_csv
-                
+                try:
+                    from src.tracks.telemetry_converter import convert_xrk_to_csv
+                except ImportError:
+                    st.error(
+                        f"❌ Cannot read **{uf.name}**: the `libxrk` package is "
+                        "not installed. Install it with `pip install libxrk` "
+                        "to enable AiM .xrk/.xrz telemetry import."
+                    )
+                    continue
+
                 temp_xrk_path = os.path.join(RESULTS_PATH, f"temp_{uf.name}")
                 temp_csv_path = os.path.join(RESULTS_PATH, f"temp_{uf.name}.csv")
                 

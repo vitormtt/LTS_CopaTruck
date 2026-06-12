@@ -30,30 +30,29 @@ from src.visualization.components.helpers import RESULTS_PATH, cached_solver, fm
 
 # Routing dictionary
 PAGES = {
-    "🚗 Parameters":    parametros_veiculo_page,
-    "🗺️ Track":         pista_page,
-    "▶️ Simulation":    simulacao_page,
-    "📊 Batch Simulation": batch_run_page,
-    "🏁 Results":       resultados_page,
-    "📊 Compare":       compare_page,
-    "🔧 Optimization":  optimization_page,
+    "Parameters":    parametros_veiculo_page,
+    "Track":         pista_page,
+    "Simulation":    simulacao_page,
+    "Batch Simulation": batch_run_page,
+    "Results":       resultados_page,
+    "Compare":       compare_page,
+    "Optimization":  optimization_page,
 }
 
 # App-wide layout configuration
 st.set_page_config(
     page_title="LapTimeSimulator — Copa Truck",
-    layout="wide",
-    page_icon="🏁"
+    layout="wide"
 )
 
 # Initialize Session State
 init_session_state()
 
 if "page" not in st.session_state:
-    st.session_state.page = "🚗 Parameters"
+    st.session_state.page = "Parameters"
 
 # Sidebar navigation menu
-st.sidebar.title("🏁 LapTimeSimulator")
+st.sidebar.title("LapTimeSimulator")
 st.sidebar.caption("Copa Truck")
 
 page_list = list(PAGES.keys())
@@ -70,15 +69,15 @@ if selected_page != st.session_state.page:
 
 # --- Global Play Button ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("▶️ Global Simulation")
+st.sidebar.subheader("Global Simulation")
 
 if st.session_state.circuit is None:
-    st.sidebar.warning("⚠️ Select a track in the 'Track' tab first.")
+    st.sidebar.warning("Select a track in the Track tab first.")
 elif st.session_state.vehicle_params is None or not st.session_state.params_saved:
-    st.sidebar.warning("⚠️ Configure and save a vehicle in the 'Parameters' tab first.")
+    st.sidebar.warning("Configure and save a vehicle in the Parameters tab first.")
 else:
-    if st.sidebar.button("▶ Run Simulation", width="stretch", type="primary", key="global_sim_button"):
-        with st.sidebar.spinner("🔄 Running QSS solver..."):
+    if st.sidebar.button("Run Simulation", width="stretch", type="primary", key="global_sim_button"):
+        with st.sidebar.spinner("Running QSS solver..."):
             vp = st.session_state.vehicle_params
             params_dict = vp.to_solver_dict()
             params_dict.setdefault("track_width", 2.5)
@@ -120,7 +119,7 @@ else:
                     "result_obj": result,
                 })
 
-                st.session_state.page = "🏁 Results"
+                st.session_state.page = "Results"
                 st.rerun()
             except Exception as exc:
                 st.sidebar.error(f"Solver Error: {exc}")

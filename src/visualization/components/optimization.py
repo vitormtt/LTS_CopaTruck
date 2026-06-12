@@ -1,7 +1,11 @@
 """
 Setup optimization page component for the Streamlit UI.
 
-Grid search optimizer over anti-roll bar stiffnesses and wing positions.
+Two optimizers over the VehicleSetup space (ARB front/rear, wing,
+tyre pressure, brake bias):
+- Grid Search: exhaustive over the discrete ARB/wing ranges;
+- Differential Evolution (scipy): global stochastic search over all
+  five setup variables with a convergence plot per generation.
 
 Author: Lap Time Simulator Team
 Date: 2026-06-06
@@ -12,11 +16,64 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from scipy.optimize import differential_evolution
 
 from src.vehicle.fleet import get_vehicle_by_id
 from src.vehicle.setup import VehicleSetup, apply_setup
-from src.vehicle.units import psi_to_bar
+from src.vehicle.units import bar_to_psi, psi_to_bar
 from .helpers import cached_solver, fmt_laptime, init_session_state
+
+
+def _evaluate_setup(base, circuit, arb_f: int, arb_r: int, wing: int,
+                    pressure_bar: float, bias: float) -> float:
+    """Lap time for one setup combination (inf when the solver fails)."""
+    setup = VehicleSetup(
+        arb_front=int(arb_f),
+        arb_rear=int(arb_r),
+        wing_position=int(wing),
+        tyre_pressure=float(pressure_bar),
+        brake_bias=float(bias),
+        setup_name=f"ARB{int(arb_f)}/{int(arb_r)}_W{int(wing)}",
+    )
+    params = apply_setup(base, setup)
+    params_dict = params.to_solver_dict()
+    # apply_setup already folded the pressure grip delta into mu/Cf/Cr;
+    # reset the exported cold pressure so it is not re-applied
+    params_dict["P_cold_bar"] = 1.8
+    try:
+        r = cached_solver(params_dict=params_dict, circuit=circuit,
+                          config={}, save_csv=False)
+        return float(r["lap_time"])
+    except Exception:
+        return float("inf")
+
+
+def _run_differential_evolution(base, circuit, pressure_bounds_bar,
+                                bias_bounds, maxiter: int, popsize: int):
+    """DE over [arb_f, arb_r, wing, pressure, bias]; returns history+best."""
+    bounds = [(1, 7), (1, 7), (1, 9), pressure_bounds_bar, bias_bounds]
+    history: list = []
+
+    def objective(x: np.ndarray) -> float:
+        arb_f, arb_r, wing = (int(round(v)) for v in x[:3])
+        return _evaluate_setup(base, circuit, arb_f, arb_r, wing, x[3], x[4])
+
+    progress = st.progress(0, text="Differential evolution...")
+
+    def callback(xk, convergence=0.0):
+        history.append(objective(xk))
+        progress.progress(
+            min(len(history) / maxiter, 1.0),
+            text=f"Generation {len(history)}/{maxiter} — "
+                 f"best {fmt_laptime(min(history))}"
+        )
+
+    result = differential_evolution(
+        objective, bounds=bounds, maxiter=maxiter, popsize=popsize,
+        seed=42, polish=False, callback=callback, tol=1e-6,
+    )
+    progress.empty()
+    return result, history
 
 
 def optimization_page() -> None:
@@ -38,6 +95,61 @@ def optimization_page() -> None:
         "and wing positions to aero deltas (ΔCd/ΔCl) applied on top of the "
         "selected truck's baseline parameters."
     )
+
+    method = st.radio(
+        "Optimization Method:",
+        ["Grid Search", "Differential Evolution (scipy)"],
+        horizontal=True, key="opt_method",
+        help="Grid Search sweeps ARB/wing exhaustively with fixed "
+             "pressure/bias. Differential Evolution searches all five "
+             "setup variables (incl. pressure and bias) globally."
+    )
+
+    if method == "Differential Evolution (scipy)":
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            de_maxiter = st.number_input(
+                "Generations (maxiter)", 5, 100, 15, step=5, key="opt_de_iter"
+            )
+        with col_d2:
+            de_popsize = st.number_input(
+                "Population Size", 6, 40, 12, step=2, key="opt_de_pop"
+            )
+
+        if st.button("🧬 Run Differential Evolution", width="stretch",
+                     type="primary"):
+            base = get_vehicle_by_id(st.session_state.vehicle_id)
+            circuit = st.session_state.circuit
+            t0 = time.perf_counter()
+            result, history = _run_differential_evolution(
+                base, circuit,
+                pressure_bounds_bar=(psi_to_bar(20.5), psi_to_bar(34.5)),
+                bias_bounds=(-2.0, 0.0),
+                maxiter=int(de_maxiter), popsize=int(de_popsize),
+            )
+            elapsed = time.perf_counter() - t0
+
+            arb_f, arb_r, wing = (int(round(v)) for v in result.x[:3])
+            best_pressure, best_bias = float(result.x[3]), float(result.x[4])
+            st.success(
+                f"✅ DE complete in {elapsed:.1f}s ({result.nfev} laps) — "
+                f"Optimum: **ARB {arb_f}/{arb_r} Wing {wing} | "
+                f"{bar_to_psi(best_pressure):.1f} psi | bias {best_bias:+.1f}** "
+                f"→ **{fmt_laptime(float(result.fun))}**"
+            )
+
+            fig_conv = go.Figure()
+            fig_conv.add_trace(go.Scatter(
+                y=history, mode="lines+markers", name="Best lap",
+                line=dict(color="seagreen", width=2),
+            ))
+            fig_conv.update_layout(
+                title="Convergence — best lap time per generation",
+                xaxis_title="Generation", yaxis_title="Lap time (s)",
+                height=320, margin=dict(l=0, r=0, t=40, b=0),
+            )
+            st.plotly_chart(fig_conv, width="stretch")
+        return
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:

@@ -9,7 +9,7 @@
     "h_cg": 1.1,
     "Cf": 135000.0,
     "Cr": 135000.0,
-    "mu": 1.52,
+    "mu": 1.6,
     "r_wheel": 0.65,
     "P_max": 850000.0,
     "T_max": 4200.0,
@@ -32,11 +32,11 @@
     ],
     "final_drive": 4.0,
     "max_decel": 9.2,
-    "Cx": 0.8,
+    "Cx": 0.7,
     "A_front": 8.7,
     "Cl": 0.05,
     "max_brake_force": 60000.0,
-    "brake_balance": 58.0,
+    "brake_balance": 60.0,
     "Iz": 15000.0,
     "torque_curve_rpm": [
       800.0,
@@ -51,7 +51,8 @@
       3990.0,
       3360.0,
       2520.0
-    ]
+    ],
+    "abs_enabled": true
   },
   "scania_r480": {
     "name": "Scania R480 (Racing Tuned)",
@@ -63,7 +64,7 @@
     "h_cg": 1.15,
     "Cf": 140000.0,
     "Cr": 140000.0,
-    "mu": 1.5,
+    "mu": 1.58,
     "r_wheel": 0.67,
     "P_max": 880000.0,
     "T_max": 4400.0,
@@ -86,11 +87,11 @@
     ],
     "final_drive": 4.1,
     "max_decel": 9.0,
-    "Cx": 0.82,
+    "Cx": 0.72,
     "A_front": 8.9,
     "Cl": 0.08,
     "max_brake_force": 62000.0,
-    "brake_balance": 58.0,
+    "brake_balance": 60.0,
     "Iz": 15000.0,
     "torque_curve_rpm": [
       750.0,
@@ -105,7 +106,8 @@
       4180.0,
       3520.0,
       2640.0
-    ]
+    ],
+    "abs_enabled": true
   },
   "volvo_fh16": {
     "name": "Volvo FH16 (Racing Tuned)",
@@ -117,7 +119,7 @@
     "h_cg": 1.12,
     "Cf": 145000.0,
     "Cr": 145000.0,
-    "mu": 1.55,
+    "mu": 1.63,
     "r_wheel": 0.66,
     "P_max": 900000.0,
     "T_max": 4500.0,
@@ -140,11 +142,11 @@
     ],
     "final_drive": 3.9,
     "max_decel": 9.4,
-    "Cx": 0.78,
+    "Cx": 0.68,
     "A_front": 8.6,
     "Cl": 0.03,
     "max_brake_force": 61000.0,
-    "brake_balance": 58.0,
+    "brake_balance": 60.0,
     "Iz": 15000.0,
     "torque_curve_rpm": [
       800.0,
@@ -159,6 +161,7 @@
       4275.0,
       3600.0,
       2700.0
-    ]
+    ],
+    "abs_enabled": true
   }
 }
