@@ -9,6 +9,7 @@ Date: 2026-06-10
 """
 
 import json
+import time
 from pathlib import Path
 from typing import Dict, Callable
 from ..parameters import VehicleParams, validate_vehicle_params
@@ -20,6 +21,18 @@ _FLEET_REGISTRY: Dict[str, Callable[[], VehicleParams]] = {}
 # Dynamic loading of JSON models (Copa Truck presets)
 _JSON_MODELS_CACHE: Dict[str, VehicleParams] = {}
 
+# Auto-refresh: the cache is transparently reloaded from storage once it
+# is older than the TTL, so edits made elsewhere (another session, psql,
+# the seed script) show up in the UI without restarting the app.
+_CACHE_TTL_S = 5.0
+_cache_loaded_at = 0.0
+_fleet_source = "none"  # "database" | "json" | "none" — for UI display
+
+
+def fleet_source() -> str:
+    """Where the current fleet cache was loaded from."""
+    return _fleet_source
+
 
 def _load_json_models() -> None:
     """Load and validate vehicle presets from database or local JSON file.
@@ -27,8 +40,11 @@ def _load_json_models() -> None:
     Raises:
         ValueError: If any preset fails physical-consistency validation.
     """
-    if _JSON_MODELS_CACHE:
+    global _cache_loaded_at, _fleet_source
+    if _JSON_MODELS_CACHE and (time.monotonic() - _cache_loaded_at) < _CACHE_TTL_S:
         return
+    _JSON_MODELS_CACHE.clear()
+    _cache_loaded_at = time.monotonic()
 
     # Try database first
     try:
@@ -47,10 +63,12 @@ def _load_json_models() -> None:
                         loaded[key] = vp
             if loaded:
                 _JSON_MODELS_CACHE.update(loaded)
+                _fleet_source = "database"
                 return
     except Exception:
         # Fallback silently to local file database
         pass
+    _fleet_source = "json"
 
     json_path = Path(__file__).parent.parent.parent.parent / "data" / "vehicle_models.json"
     if not json_path.exists():
@@ -129,9 +147,12 @@ def refresh_fleet() -> None:
     """Invalidate the preset cache so newly persisted models become visible.
 
     Call after db_manager.save_vehicle() (or any preset write) — the cache
-    is rebuilt from the database/JSON on the next fleet access.
+    is rebuilt from the database/JSON on the next fleet access. The cache
+    also self-refreshes every _CACHE_TTL_S seconds.
     """
+    global _cache_loaded_at
     _JSON_MODELS_CACHE.clear()
+    _cache_loaded_at = 0.0
 
 
 __all__ = [
@@ -139,5 +160,6 @@ __all__ = [
     "list_vehicles",
     "list_vehicle_ids",
     "refresh_fleet",
+    "fleet_source",
 ]
 

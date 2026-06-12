@@ -16,7 +16,12 @@ import pandas as pd
 import streamlit as st
 
 from src.database import db_manager
-from src.vehicle.fleet import get_vehicle_by_id, list_vehicles, refresh_fleet
+from src.vehicle.fleet import (
+    fleet_source,
+    get_vehicle_by_id,
+    list_vehicles,
+    refresh_fleet,
+)
 from src.vehicle.units import bar_to_psi, psi_to_bar
 from .helpers import init_session_state
 from .torque_curve import render_torque_curve_editor
@@ -72,12 +77,25 @@ def parametros_veiculo_page() -> None:
     if st.session_state.vehicle_id not in category_vehicles:
         st.session_state.vehicle_id = vehicle_ids[0]
 
-    selected_vid = st.selectbox(
-        "Choose Model:",
-        options=vehicle_ids,
-        index=vehicle_ids.index(st.session_state.vehicle_id),
-        format_func=lambda x: category_vehicles[x]
-    )
+    col_sel, col_refresh = st.columns([5, 1])
+    with col_sel:
+        selected_vid = st.selectbox(
+            "Choose Model:",
+            options=vehicle_ids,
+            index=vehicle_ids.index(st.session_state.vehicle_id),
+            format_func=lambda x: category_vehicles[x]
+        )
+    with col_refresh:
+        st.caption(f"source: {fleet_source()}")
+        if st.button(
+            "↻ Refresh", key="btn_refresh_fleet", width="stretch",
+            help="Reload fleet data from storage and re-seed the inputs "
+                 "below (the model list also auto-refreshes every 5 s)."
+        ):
+            refresh_fleet()
+            _reset_param_widget_state()
+            st.session_state.vehicle_params = None
+            st.rerun()
 
     # If selection changed, reload params and drop stale widget state
     if selected_vid != st.session_state.vehicle_id or st.session_state.vehicle_params is None:

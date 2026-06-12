@@ -37,6 +37,12 @@ except ImportError:
     logger.warning("psycopg2 is not installed. Database functionality will fallback to JSON files.")
     _db_disabled = True
 
+from src.database.vehicle_mapping import (
+    FLAT_TO_TABLES,
+    decompose_params,
+    recompose_params,
+)
+
 
 def get_connection():
     """Establish and return a connection to the PostgreSQL database."""
@@ -73,28 +79,59 @@ def save_vehicle(vehicle_id: str, name: str, manufacturer: str, year: int, categ
     # Ensure local directory exists for fallback
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Try database first
+    # Try database first — one transaction across all subsystem tables
     if not _db_disabled:
         try:
+            tables, gears, torque = decompose_params(params)
             conn = get_connection()
             with conn.cursor() as cursor:
-                # Upsert into vehicles
-                query = """
-                INSERT INTO vehicles (vehicle_id, name, manufacturer, year, category, params, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT (vehicle_id) DO UPDATE
-                SET name = EXCLUDED.name,
-                    manufacturer = EXCLUDED.manufacturer,
-                    year = EXCLUDED.year,
-                    category = EXCLUDED.category,
-                    params = EXCLUDED.params,
-                    updated_at = CURRENT_TIMESTAMP;
-                """
-                cursor.execute(query, (vehicle_id, name, manufacturer, year, category, json.dumps(params)))
+                cursor.execute(
+                    """
+                    INSERT INTO vehicles (vehicle_id, name, manufacturer, year, category, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (vehicle_id) DO UPDATE
+                    SET name = EXCLUDED.name,
+                        manufacturer = EXCLUDED.manufacturer,
+                        year = EXCLUDED.year,
+                        category = EXCLUDED.category,
+                        updated_at = CURRENT_TIMESTAMP;
+                    """,
+                    (vehicle_id, name, manufacturer, year, category),
+                )
+                for table, row in tables.items():
+                    columns = list(row.keys())
+                    placeholders = ", ".join(["%s"] * (len(columns) + 1))
+                    col_sql = ", ".join(["vehicle_id"] + columns)
+                    update_sql = ", ".join(
+                        f"{c} = EXCLUDED.{c}" for c in columns
+                    )
+                    cursor.execute(
+                        f"INSERT INTO {table} ({col_sql}) VALUES ({placeholders}) "
+                        f"ON CONFLICT (vehicle_id) DO UPDATE SET {update_sql};",
+                        [vehicle_id] + list(row.values()),
+                    )
+                cursor.execute(
+                    "DELETE FROM vehicle_gear_ratios WHERE vehicle_id = %s", (vehicle_id,)
+                )
+                for gear_number, ratio in gears:
+                    cursor.execute(
+                        "INSERT INTO vehicle_gear_ratios (vehicle_id, gear_number, ratio) "
+                        "VALUES (%s, %s, %s)",
+                        (vehicle_id, gear_number, ratio),
+                    )
+                cursor.execute(
+                    "DELETE FROM vehicle_torque_curve WHERE vehicle_id = %s", (vehicle_id,)
+                )
+                for rpm, torque_nm in torque:
+                    cursor.execute(
+                        "INSERT INTO vehicle_torque_curve (vehicle_id, rpm, torque_nm) "
+                        "VALUES (%s, %s, %s)",
+                        (vehicle_id, rpm, torque_nm),
+                    )
             conn.commit()
             conn.close()
             logger.info(f"Vehicle '{vehicle_id}' saved to database successfully.")
-            
+
             # Also keep local JSON updated to keep them in sync
             _save_vehicle_locally(vehicle_id, name, manufacturer, year, category, params)
             return True
@@ -136,14 +173,40 @@ def get_vehicle(vehicle_id: str) -> Optional[Dict[str, Any]]:
         try:
             conn = get_connection()
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("SELECT name, manufacturer, year, category, params FROM vehicles WHERE vehicle_id = %s", (vehicle_id,))
-                row = cursor.fetchone()
-                if row:
-                    vehicle_data = dict(row["params"])
-                    vehicle_data["name"] = row["name"]
-                    vehicle_data["manufacturer"] = row["manufacturer"]
-                    vehicle_data["year"] = row["year"]
-                    vehicle_data["category"] = row["category"]
+                cursor.execute(
+                    "SELECT name, manufacturer, year, category FROM vehicles WHERE vehicle_id = %s",
+                    (vehicle_id,),
+                )
+                identity = cursor.fetchone()
+                if identity:
+                    tables = {}
+                    for table in FLAT_TO_TABLES:
+                        cursor.execute(
+                            f"SELECT * FROM {table} WHERE vehicle_id = %s", (vehicle_id,)
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            row = dict(row)
+                            row.pop("vehicle_id", None)
+                            tables[table] = row
+                    cursor.execute(
+                        "SELECT gear_number, ratio FROM vehicle_gear_ratios "
+                        "WHERE vehicle_id = %s ORDER BY gear_number",
+                        (vehicle_id,),
+                    )
+                    gears = [(r["gear_number"], r["ratio"]) for r in cursor.fetchall()]
+                    cursor.execute(
+                        "SELECT rpm, torque_nm FROM vehicle_torque_curve "
+                        "WHERE vehicle_id = %s ORDER BY rpm",
+                        (vehicle_id,),
+                    )
+                    torque = [(r["rpm"], r["torque_nm"]) for r in cursor.fetchall()]
+
+                    vehicle_data = recompose_params(tables, gears, torque)
+                    vehicle_data["name"] = identity["name"]
+                    vehicle_data["manufacturer"] = identity["manufacturer"]
+                    vehicle_data["year"] = identity["year"]
+                    vehicle_data["category"] = identity["category"]
                     conn.close()
                     return vehicle_data
             conn.close()
