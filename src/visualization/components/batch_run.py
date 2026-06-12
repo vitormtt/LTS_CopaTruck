@@ -61,24 +61,25 @@ def batch_run_page() -> None:
         st.warning("⚠️ Please select at least one vehicle.")
         return
 
+    force_rerun = st.checkbox(
+        "Force re-run (ignore solver cache)", value=False, key="batch_force_rerun",
+        help="Identical vehicle+track+mode combinations are served from an "
+             "in-memory cache (instant). Tick to recompute everything."
+    )
+
     st.markdown("---")
-    
+
     if st.button("🚀 Run Batch Simulation", width="stretch", type="primary"):
         results_list = []
         progress_bar = st.progress(0, text="Initializing simulations...")
-        
+
         t_start = time.perf_counter()
-        
+
         for idx, vid in enumerate(selected_vids):
-            progress_bar.progress(
-                idx / len(selected_vids),
-                text=f"Simulating {all_vehicles[vid]} ({idx+1}/{len(selected_vids)})..."
-            )
-            
             vp = get_vehicle_by_id(vid)
             params_dict = vp.to_solver_dict()
             params_dict.setdefault("track_width", 2.5)
-            
+
             # Track grip multiplier scales the tyre friction coefficient
             grip_mult = float(getattr(st.session_state.circuit, "grip_multiplier", 1.0))
 
@@ -91,17 +92,18 @@ def batch_run_page() -> None:
             if mode_key == "standing_start":
                 solver_config["launch_rpm"] = 1500.0  # diesel truck launch
                 solver_config["wheelspin_limit"] = 0.15
-                
+
             try:
                 t0 = time.perf_counter()
                 r = cached_solver(
                     params_dict=params_dict,
                     circuit=st.session_state.circuit,
                     config=solver_config,
-                    save_csv=False
+                    save_csv=False,
+                    use_cache=not force_rerun
                 )
                 dt = time.perf_counter() - t0
-                
+
                 results_list.append({
                     "Vehicle": all_vehicles[vid],
                     "Lap Time": r["lap_time"],
@@ -109,7 +111,8 @@ def batch_run_page() -> None:
                     "Mean Speed (km/h)": float(np.mean(r["v_profile"])) * 3.6,
                     "Fuel Consumed (L)": float(r["consumo"][-1]),
                     "Final Tyre Temp (°C)": float(r["temp_pneu"][-1]),
-                    "Compute Time (s)": dt
+                    "Compute Time (s)": dt,
+                    "Source": "cache ⚡" if (not force_rerun and dt < 0.05) else "solver",
                 })
             except Exception as e:
                 st.error(f"❌ Failed to simulate {all_vehicles[vid]}: {e}")
@@ -120,49 +123,65 @@ def batch_run_page() -> None:
                     "Mean Speed (km/h)": 0.0,
                     "Fuel Consumed (L)": 0.0,
                     "Final Tyre Temp (°C)": 0.0,
-                    "Compute Time (s)": 0.0
+                    "Compute Time (s)": 0.0,
+                    "Source": "failed",
                 })
-                
+            progress_bar.progress(
+                (idx + 1) / len(selected_vids),
+                text=f"Simulated {all_vehicles[vid]} ({idx+1}/{len(selected_vids)})"
+            )
+
         elapsed = time.perf_counter() - t_start
         progress_bar.empty()
-        
-        # Build comparison dataframe
-        df = pd.DataFrame(results_list)
-        df_valid = df[df["Lap Time"] < float("inf")].copy()
-        
-        if df_valid.empty:
-            st.error("❌ All simulations failed to run.")
-            return
-            
-        # Format lap time display column
-        df_valid["Lap Time Formatted"] = df_valid["Lap Time"].apply(fmt_laptime)
-        
-        # Display best run success
-        best_row = df_valid.loc[df_valid["Lap Time"].idxmin()]
-        st.success(
-            f"✅ Batch simulation completed in {elapsed:.2f}s! "
-            f"Winner: **{best_row['Vehicle']}** with lap time of **{best_row['Lap Time Formatted']}**."
+
+        # Persist so the comparison survives any later rerun/interaction
+        st.session_state["batch_results"] = pd.DataFrame(results_list)
+        st.session_state["batch_elapsed"] = elapsed
+
+    if st.session_state.get("batch_results") is not None:
+        _render_batch_results(
+            st.session_state["batch_results"],
+            st.session_state.get("batch_elapsed", 0.0),
         )
-        
-        st.subheader("📊 Performance KPI Comparison")
-        
-        # Format columns for display
-        df_display = df_valid[[
-            "Vehicle", "Lap Time Formatted", "Max Speed (km/h)", 
-            "Mean Speed (km/h)", "Fuel Consumed (L)", "Final Tyre Temp (°C)"
-        ]].rename(columns={"Lap Time Formatted": "Lap Time"})
-        
-        st.dataframe(df_display.style.highlight_min(subset=["Lap Time"], color="#2c7a40"), width="stretch")
-        
-        # Bar chart comparison
-        import plotly.express as px
-        fig = px.bar(
-            df_valid,
-            x="Vehicle",
-            y="Lap Time",
-            color="Vehicle",
-            text="Lap Time Formatted",
-            title=f"Lap Time comparison on {st.session_state.circuit_meta['name']}"
-        )
-        fig.update_layout(yaxis_title="Lap Time (s)", showlegend=False, height=400)
-        st.plotly_chart(fig, width="stretch")
+
+
+def _render_batch_results(df: pd.DataFrame, elapsed: float) -> None:
+    """Render the persisted batch comparison table and chart."""
+    df_valid = df[df["Lap Time"] < float("inf")].copy()
+
+    if df_valid.empty:
+        st.error("❌ All simulations failed to run.")
+        return
+
+    # Format lap time display column
+    df_valid["Lap Time Formatted"] = df_valid["Lap Time"].apply(fmt_laptime)
+
+    # Display best run success
+    best_row = df_valid.loc[df_valid["Lap Time"].idxmin()]
+    st.success(
+        f"✅ Batch simulation completed in {elapsed:.2f}s! "
+        f"Winner: **{best_row['Vehicle']}** with lap time of **{best_row['Lap Time Formatted']}**."
+    )
+
+    st.subheader("📊 Performance KPI Comparison")
+
+    # Format columns for display
+    df_display = df_valid[[
+        "Vehicle", "Lap Time Formatted", "Max Speed (km/h)",
+        "Mean Speed (km/h)", "Fuel Consumed (L)", "Final Tyre Temp (°C)", "Source"
+    ]].rename(columns={"Lap Time Formatted": "Lap Time"})
+
+    st.dataframe(df_display.style.highlight_min(subset=["Lap Time"], color="#2c7a40"), width="stretch")
+
+    # Bar chart comparison
+    import plotly.express as px
+    fig = px.bar(
+        df_valid,
+        x="Vehicle",
+        y="Lap Time",
+        color="Vehicle",
+        text="Lap Time Formatted",
+        title=f"Lap Time comparison on {st.session_state.circuit_meta['name']}"
+    )
+    fig.update_layout(yaxis_title="Lap Time (s)", showlegend=False, height=400)
+    st.plotly_chart(fig, width="stretch")
