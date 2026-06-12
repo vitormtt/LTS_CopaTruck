@@ -11,3 +11,4 @@ seaborn>=0.13.0
 pytest>=8.1.0
 reportlab>=4.1.0
 libxrk>=0.12.0  # AiM .xrk telemetry parsing (Perez-data)
+psycopg2-binary>=2.9.0  # PostgreSQL driver (src/database, optional at runtime)

@@ -1,0 +1,30 @@
+# VCS / agent tooling
+.git/
+.github/
+.claude/
+*.md
+
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local data that must never enter the image
+.env
+.env.*
+Perez-data/
+_archive/
+docs/
+tests/
+outputs/
+src/results/
+tracks/custom/
+
+# Docker files themselves (not needed inside the build context output)
+Dockerfile
+docker-compose*.yml

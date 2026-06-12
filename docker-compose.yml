@@ -1,20 +1,56 @@
-version: '3.8'
-
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: copa_truck_db
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: saru_admin
-      POSTGRES_PASSWORD: saru_pass
-      POSTGRES_DB: copa_truck_sim
+      POSTGRES_USER: ${DB_USER:-saru_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Missing DB_PASSWORD — copy .env.example to .env}
+      POSTGRES_DB: ${DB_NAME:-copa_truck_sim}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./src/database/db_schema.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./src/database/db_schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+
+  app:
+    build:
+      context: .
+      target: app
+    container_name: copa_truck_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-copa_truck_sim}
+      DB_USER: ${DB_USER:-saru_admin}
+      DB_PASSWORD: ${DB_PASSWORD:?Missing DB_PASSWORD — copy .env.example to .env}
+    ports:
+      - "${APP_PORT:-8501}:8501"
+    volumes:
+      - app_data:/app/data
+      - app_results:/app/src/results
+      - app_tracks:/app/tracks
+    networks:
+      - backend
 
 volumes:
   postgres_data:
     driver: local
+  app_data:
+  app_results:
+  app_tracks:
+
+networks:
+  backend:
+    driver: bridge

@@ -112,6 +112,27 @@ python src/tracks/generate_br_tracks.py
 streamlit run src/visualization/interface.py
 ```
 
+### Docker (app + PostgreSQL)
+
+The stack ships as two containers: `app` (Streamlit UI + simulation core)
+and `db` (PostgreSQL 16, schema auto-applied on first start). Vehicle
+presets and simulation results are stored in Postgres with a transparent
+JSON fallback (`src/database/db_manager.py`) when the database is offline.
+
+```bash
+cp .env.example .env   # set DB credentials (compose refuses to start without it)
+make up                # build + start db and app (dev hot-reload via override)
+make seed              # load fleet presets from data/vehicle_models.json into Postgres
+make logs-app          # follow the Streamlit logs — UI at http://localhost:8501
+make down              # stop (down-clean also drops the db volume)
+```
+
+`docker-compose.override.yml` bind-mounts `src/`, `data/` and `tracks/`
+for development; use `docker compose -f docker-compose.yml up` for a
+production-like run from the baked image. The `base` stage in the
+`Dockerfile` is the shared foundation for a future REST API service
+(`FROM base AS api`) once the frontend is split out of this repo.
+
 ### Run a simulation from Python
 
 ```python

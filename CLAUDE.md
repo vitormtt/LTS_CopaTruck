@@ -40,16 +40,33 @@ LapTimeSimulator_CopaTruck/
 │   ├── simulation/          ← lap_time_solver.py — core solver (two-pass)
 │   ├── vehicle/             ← VehicleParams and sub-dataclasses
 │   ├── tracks/              ← HDF5 reader/writer, TUM FTM integration
+│   ├── database/            ← PostgreSQL manager + schema (JSON fallback)
 │   ├── visualization/       ← Streamlit interface (interface.py)
 │   ├── optimization/        ← setup optimization (future)
 │   └── results/             ← exported .csv telemetry
 ├── tracks/                  ← circuit files (.hdf5)
 ├── data/                    ← vehicle presets (.json)
 ├── tests/                   ← pytest — must pass 100% before any push
+├── Dockerfile               ← multi-stage: base (deps) → app (Streamlit)
+├── docker-compose.yml       ← db (Postgres 16) + app; .env-driven, healthchecked
+├── docker-compose.override.yml ← dev bind-mounts + hot-reload
+├── Makefile                 ← up/down/seed/test/logs entry points
 ├── requirements.txt
 ├── pyproject.toml
 └── README.md
 ```
+
+### Containers & Database
+- Stack: `db` (PostgreSQL 16-alpine, schema applied via initdb) + `app`
+  (Streamlit + core). Config flows exclusively through `.env`
+  (`DB_USER/DB_PASSWORD/DB_NAME/DB_PORT/APP_PORT`) — never hardcode
+  credentials in compose files.
+- `src/database/db_manager.py` reads `DB_*` env vars and falls back to
+  JSON files in `data/` when Postgres is unreachable — the app must keep
+  working with no database.
+- The `base` image stage is the anchor for a future `api` service (REST)
+  when the frontend is split out — add `FROM base AS api`, do not fork a
+  second dependency stack.
 
 ---
 
