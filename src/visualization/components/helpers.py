@@ -74,11 +74,12 @@ def cached_solver(
     circuit: Any,
     config: dict,
     save_csv: bool = False,
-    out_path: str = None
+    out_path: str = None,
+    use_cache: bool = True
 ) -> dict:
     """Run solver with in-memory caching to avoid re-computing same setup."""
     key = _solver_cache_key(params_dict, circuit, config)
-    if key in _solver_result_cache:
+    if use_cache and key in _solver_result_cache:
         result = _solver_result_cache[key]
         if save_csv and out_path:
             _save_result_csv(result, out_path)

@@ -537,7 +537,15 @@ _RHO_AIR = 1.225    # [kg/m³]
 # load transfer on an axle (Pacejka 2012, load-sensitivity of mu).
 # Calibrated against the validated lap-time windows (Cascavel 76-82 s,
 # Interlagos 125-132 s) together with the preset mu/Cx values.
-_S_LOAD = 0.082
+# Tyre load sensitivity — calibrated against real telemetry windows
+# (VW 31320: Cascavel 76-82 s, Interlagos 125-132 s), see
+# docs/SESSION_LOG_2026-06-11.md. Do not retune without cross-validation.
+_S_LOAD = 0.12
+
+# Couple per-wheel hot pressure/temperature into the friction coefficient
+# (the "full car" tyre model). Off by default: not yet calibrated against
+# real telemetry — see the note inside _axle_grip().
+_THERMAL_GRIP_COUPLING = False
 # Fraction of the peak axle lateral force usable as yaw-moment authority
 # during direction changes (quasi-transient extension)
 _YAW_MOMENT_FACTOR = 0.5
@@ -615,35 +623,50 @@ def _axle_grip(
     dfz_f = lat_moment / tw_f * frac_f
     dfz_r = lat_moment / tw_r * (1.0 - frac_f)
 
-    # 4 wheels normal loads
+    # 4 wheels normal loads. Load is CONSERVED per axle: when the inner
+    # wheel lifts (clamped at zero), the outer wheel carries the remaining
+    # axle load — never more. Without the complementary assignment the
+    # outer wheel got 0.5*Fz + dfz with no upper cap, creating phantom
+    # axle load (and grip) that grew with lateral transfer.
     Fz_LF = max(0.5 * Fz_f_static - dfz_f, 0.0)
-    Fz_RF = max(0.5 * Fz_f_static + dfz_f, 0.0)
+    Fz_RF = Fz_f_static - Fz_LF
     Fz_LR = max(0.5 * Fz_r_static - dfz_r, 0.0)
-    Fz_RR = max(0.5 * Fz_r_static + dfz_r, 0.0)
+    Fz_RR = Fz_r_static - Fz_LR
 
-    # Optimal PSI and temperature constants
-    p_opt = 34.0
-    T_opt = 80.0
+    # Thermal/pressure -> grip coupling ("full car" tyre model).
+    # DISABLED until calibrated against real telemetry (Perez-data .xrk):
+    # coupling hot pressure/temperature into mu moved lap times away from
+    # the validated telemetry windows (VW 31320: Cascavel 76-82 s,
+    # Interlagos 125-132 s) and inverted physical expectations (a narrower
+    # track heats tyres faster and gained more from t_factor than it lost
+    # to load transfer). Per-wheel temperature/pressure stay live as
+    # telemetry channels; re-enable only with cross-validation (Golden
+    # Rule 2). Note: p_opt=34 psi is a passenger-car optimum — Copa Truck
+    # tyres (315/70 R22.5) run ~95-120 psi cold; recalibrate with Pérez.
+    if _THERMAL_GRIP_COUPLING:
+        p_opt = 34.0
+        T_opt = 80.0
 
-    # LF pressure & temperature factors
-    P_hot_lf = p.P_cold_lf_psi + 0.174 * (temp_lf - _T_AMBIENT_TYRE)
-    p_factor_lf = max(1.0 - 0.0015 * (P_hot_lf - p_opt) ** 2, 0.5)
-    t_factor_lf = max(1.0 - 0.00005 * (temp_lf - T_opt) ** 2, 0.5)
+        P_hot_lf = p.P_cold_lf_psi + 0.174 * (temp_lf - _T_AMBIENT_TYRE)
+        p_factor_lf = max(1.0 - 0.0015 * (P_hot_lf - p_opt) ** 2, 0.5)
+        t_factor_lf = max(1.0 - 0.00005 * (temp_lf - T_opt) ** 2, 0.5)
 
-    # FR pressure & temperature factors
-    P_hot_fr = p.P_cold_fr_psi + 0.174 * (temp_fr - _T_AMBIENT_TYRE)
-    p_factor_fr = max(1.0 - 0.0015 * (P_hot_fr - p_opt) ** 2, 0.5)
-    t_factor_fr = max(1.0 - 0.00005 * (temp_fr - T_opt) ** 2, 0.5)
+        P_hot_fr = p.P_cold_fr_psi + 0.174 * (temp_fr - _T_AMBIENT_TYRE)
+        p_factor_fr = max(1.0 - 0.0015 * (P_hot_fr - p_opt) ** 2, 0.5)
+        t_factor_fr = max(1.0 - 0.00005 * (temp_fr - T_opt) ** 2, 0.5)
 
-    # LR pressure & temperature factors
-    P_hot_lr = p.P_cold_lr_psi + 0.174 * (temp_lr - _T_AMBIENT_TYRE)
-    p_factor_lr = max(1.0 - 0.0015 * (P_hot_lr - p_opt) ** 2, 0.5)
-    t_factor_lr = max(1.0 - 0.00005 * (temp_lr - T_opt) ** 2, 0.5)
+        P_hot_lr = p.P_cold_lr_psi + 0.174 * (temp_lr - _T_AMBIENT_TYRE)
+        p_factor_lr = max(1.0 - 0.0015 * (P_hot_lr - p_opt) ** 2, 0.5)
+        t_factor_lr = max(1.0 - 0.00005 * (temp_lr - T_opt) ** 2, 0.5)
 
-    # RR pressure & temperature factors
-    P_hot_rr = p.P_cold_rr_psi + 0.174 * (temp_rr - _T_AMBIENT_TYRE)
-    p_factor_rr = max(1.0 - 0.0015 * (P_hot_rr - p_opt) ** 2, 0.5)
-    t_factor_rr = max(1.0 - 0.00005 * (temp_rr - T_opt) ** 2, 0.5)
+        P_hot_rr = p.P_cold_rr_psi + 0.174 * (temp_rr - _T_AMBIENT_TYRE)
+        p_factor_rr = max(1.0 - 0.0015 * (P_hot_rr - p_opt) ** 2, 0.5)
+        t_factor_rr = max(1.0 - 0.00005 * (temp_rr - T_opt) ** 2, 0.5)
+    else:
+        p_factor_lf = t_factor_lf = 1.0
+        p_factor_fr = t_factor_fr = 1.0
+        p_factor_lr = t_factor_lr = 1.0
+        p_factor_rr = t_factor_rr = 1.0
 
     # Axle-level load sensitivity scaling
     mu_base = mu * p.pacejka_D
@@ -1018,10 +1041,11 @@ def _run_ggv_solver(
         dfz_f = lat_moment / tw_f * frac_f
         dfz_r = lat_moment / tw_r * (1.0 - frac_f)
 
+        # Per-axle load conservation (see _axle_grip)
         Fz_LF = max(0.5 * Fz_f_static - dfz_f, 0.0)
-        Fz_RF = max(0.5 * Fz_f_static + dfz_f, 0.0)
+        Fz_RF = Fz_f_static - Fz_LF
         Fz_LR = max(0.5 * Fz_r_static - dfz_r, 0.0)
-        Fz_RR = max(0.5 * Fz_r_static + dfz_r, 0.0)
+        Fz_RR = Fz_r_static - Fz_LR
 
         Fz_static_f = 0.5 * Fz_f_static
         Fz_static_r = 0.5 * Fz_r_static
@@ -1225,7 +1249,15 @@ def _run_standing_start(
     torque_map_rpm, torque_map_nm,
 ) -> dict:
     """Standing start: clutch ramp + GGV forward/backward (live subsystems)."""
-    CLUTCH_RAMP_DIST = 10.0
+    # 30 m clutch-engagement ramp reproduces the validated +~7.6 s gap of a
+    # 4.5 t truck standing start vs qualifying (docs/SESSION_LOG_2026-06-11.md).
+    CLUTCH_RAMP_DIST = 30.0
+
+    # A launch RPM above the engine's rev limiter would zero the torque
+    # (fuel cut) and freeze the vehicle on the start line — clamp it to the
+    # usable engine band (SimulationConfig's default of 4500 rpm is a GT
+    # value; Copa Truck diesels rev to ~3500).
+    launch_rpm = float(np.clip(launch_rpm, p.rpm_idle, p.rpm_max * 0.9))
 
     v_profile = np.zeros(n)
     temp_LF = np.ones(n) * temp_ini
@@ -1326,10 +1358,11 @@ def _run_standing_start(
         dfz_f = lat_moment / tw_f * frac_f
         dfz_r = lat_moment / tw_r * (1.0 - frac_f)
 
+        # Per-axle load conservation (see _axle_grip)
         Fz_LF = max(0.5 * Fz_f_static - dfz_f, 0.0)
-        Fz_RF = max(0.5 * Fz_f_static + dfz_f, 0.0)
+        Fz_RF = Fz_f_static - Fz_LF
         Fz_LR = max(0.5 * Fz_r_static - dfz_r, 0.0)
-        Fz_RR = max(0.5 * Fz_r_static + dfz_r, 0.0)
+        Fz_RR = Fz_r_static - Fz_LR
 
         Fz_static_f = 0.5 * Fz_f_static
         Fz_static_r = 0.5 * Fz_r_static
@@ -1420,79 +1453,40 @@ def run_simulation(
     else:
         v0 = 0.0
 
-    if config.is_qualifying() or config.is_flying_lap() or config.is_thermal():
-        logger.info("[SIM] Executing pre-lap for Flying Lap / Qualifying convergence...")
-        if config.is_thermal():
-            pre_raw = _run_endurance_thermal(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0, temp_ini=temp_ini,
-                p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-                ambient_temp_c=config.ambient_temp_c,
-                thermal_iterations=config.thermal_iterations,
-            )
-        else:
-            pre_raw = _run_ggv_solver(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0,
-                temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-            )
-        v0_conv = pre_raw["v_profile"][-1]
-        temp_LF_ini = pre_raw["temp_LF"][-1]
-        temp_RF_ini = pre_raw["temp_RF"][-1]
-        temp_LR_ini = pre_raw["temp_LR"][-1]
-        temp_RR_ini = pre_raw["temp_RR"][-1]
-
-        # Run converged actual lap
-        if config.is_thermal():
-            raw = _run_endurance_thermal(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0_conv, temp_ini=temp_ini,
-                p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-                ambient_temp_c=config.ambient_temp_c,
-                thermal_iterations=config.thermal_iterations,
-                temp_LF_ini=temp_LF_ini,
-                temp_RF_ini=temp_RF_ini,
-                temp_LR_ini=temp_LR_ini,
-                temp_RR_ini=temp_RR_ini,
-            )
-        else:
-            raw = _run_ggv_solver(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0_conv,
-                temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-                temp_LF_ini=temp_LF_ini,
-                temp_RF_ini=temp_RF_ini,
-                temp_LR_ini=temp_LR_ini,
-                temp_RR_ini=temp_RR_ini,
-            )
+    # No pre-lap: the validation windows (VW 31320 Cascavel 76-82 s,
+    # Interlagos 125-132 s) were calibrated with the lap starting from the
+    # mode's nominal v0 and ambient tyre state. A convergence pre-lap
+    # changes the simulation regime (v0 ~ top of the previous lap, tyres
+    # pre-heated) and must not be reintroduced without re-validating
+    # against real telemetry.
+    if config.is_standing_start():
+        raw = _run_standing_start(
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+            mu=mu, launch_rpm=config.launch_rpm,
+            wheelspin_limit=config.wheelspin_limit_slip,
+            temp_ini=temp_ini,
+            p_tyre_cold=p_tyre_cold,
+            torque_map_rpm=torque_map_rpm,
+            torque_map_nm=torque_map_nm,
+        )
+    elif config.is_thermal():
+        raw = _run_endurance_thermal(
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+            mu=mu, v0=v0, temp_ini=temp_ini,
+            p_tyre_cold=p_tyre_cold,
+            torque_map_rpm=torque_map_rpm,
+            torque_map_nm=torque_map_nm,
+            ambient_temp_c=config.ambient_temp_c,
+            thermal_iterations=config.thermal_iterations,
+        )
     else:
-        # Standing start or other modes do not run pre-lap
-        if config.is_standing_start():
-            raw = _run_standing_start(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, launch_rpm=config.launch_rpm,
-                wheelspin_limit=config.wheelspin_limit_slip,
-                temp_ini=temp_ini,
-                p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-            )
-        else:
-            raw = _run_ggv_solver(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0,
-                temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-            )
+        raw = _run_ggv_solver(
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+            mu=mu, v0=v0,
+            temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
+            torque_map_rpm=torque_map_rpm,
+            torque_map_nm=torque_map_nm,
+        )
 
     lap_time = raw["time_profile"][-1]
     v_ms     = raw["v_profile"]
