@@ -219,9 +219,14 @@ perf:     performance improvement (solver speed, memory)
   editable gear ratios, weight distribution, Iz, Cl), dynamic BSFC fuel,
   interactive torque curve editor, ENDURANCE_THERMAL brake-fade mode,
   HDF5 track persistence (`tracks/custom/`), optimization unblocked for Copa Truck
-- Pending: vehicle params from Pérez; regulatory min mass confirmation
-  (presets use 4500 kg); local `pip install libxrk` to unlock .xrk
-  calibration (`scripts/calibrate_vehicle.py`)
+- Pending: vehicle params from Pérez; local `pip install libxrk` to
+  unlock .xrk calibration (`scripts/calibrate_vehicle.py`)
+- Regulatory minimums CONFIRMED from official CBA rulebooks (see
+  `docs/COPA_TRUCK_POWERTRAIN_RESEARCH.md` §0): 2025 = 4890 kg total +
+  2520 kg front axle; 2026 = 4950 kg total (axle minimum dropped).
+  `regulation_validator` is season-parameterized (default 2026).
+  Presets still use 4500 kg race mass for solver calibration — the
+  validator gates UI saves, not physics.
 - Roadmap: 3DOF roll dynamics, genetic algorithm setup optimization, Pacejka tire model, multi-lap endurance (multi-lap heat carry-over)
 
 ---

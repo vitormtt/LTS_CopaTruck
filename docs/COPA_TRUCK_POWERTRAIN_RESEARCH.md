@@ -1,5 +1,31 @@
 # Copa Truck — Dossiê de Powertrain, Transmissão e Pneus (2024–2026)
 
+## 0. Regulamento técnico oficial CBA — verificado em 2026-06-12 🟢
+
+PDFs oficiais (cba.org.br/upload/downloads):
+`copa-truck-regulamento-tecnico-2025-.pdf` (806) e
+`copa-truck-regulamento-tecnico-2026-.pdf` (856).
+
+| Parâmetro | 2025 | 2026 | No simulador |
+|---|---|---|---|
+| Peso mín. caminhão+piloto (Art. 21.2) | **4 890 kg** | **4 950 kg** | `regulation_validator` por temporada (default 2026) |
+| Peso mín. eixo dianteiro s/ piloto (Art. 21.2) | **2 520 kg** | **removido** | check só na temporada 2025 |
+| Entre-eixos (suspensão) | 3 300–3 800 mm ±50 | idem | 3.25–3.85 m ✓ |
+| Largura máx. no ombro do pneu (Fig. 14) | 2 450 mm +15 | idem | 2.465 m ✓ |
+| Cilindrada (Art. 10) | ≤13 000 cm³ (+1,5% → 13 195) | idem | n/a (curvas de torque) |
+| Diferencial (Art. 14.10) | Meritor MS-145/147 p/ todas as marcas; lacrado por evento | idem | pendente no preset |
+| Câmbio (Art. 15) | **livre**, manual padrão H; vetado automático/automatizado | idem | 12 marchas atuais não violam regra, mas não refletem as ZF/Eaton 6M usadas |
+| Pneus (Art. 5) | marca/spec **definidas pela Promotora por evento** (informativo técnico) | idem | medida exata exige informativo/RPP ou Pérez |
+| Lastro | proibido (exceto lastro de sucesso da Promotora) | idem | — |
+
+## 0.1 Tempos reais de referência (temporada 2025) 🟢
+
+| Pista | Pole PRO | Pole Elite | Simulador (VW 31320) |
+|---|---|---|---|
+| Cascavel (jul/2025) | **1:19.505** (Beto Monteiro) | 1:21.208 (Rafa Lopes) | **1:19.455 — Δ 0.05s da pole PRO** ✓ |
+| Interlagos (Super Final dez/2025) | **2:03.905** (Totti) | 2:06.680 (Perdoncini) | 2:11.343 — **+5 a +7s lento**: causa conhecida = centerline com ruído de spline (LTS_RESEARCH §5); recapturar dos GPS dos .xrk |
+| Goiânia (Super Final 2024) | 1:51.242 (Giaffone) | — | **pista não existe no simulador** — candidata a próxima adição |
+
 > Fonte: pesquisa profunda (Gemini Deep Research) consolidada em 2026-06-12,
 > revisada criticamente para uso no simulador. **Cada dado está classificado
 > por confiabilidade** — só promova um dado a parâmetro de preset/solver após
