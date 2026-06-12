@@ -61,9 +61,18 @@ LapTimeSimulator_CopaTruck/
   (Streamlit + core). Config flows exclusively through `.env`
   (`DB_USER/DB_PASSWORD/DB_NAME/DB_PORT/APP_PORT`) — never hardcode
   credentials in compose files.
+- **Relational vehicle schema**: one typed table per subsystem mirroring
+  the `VehicleParams` dataclasses (`vehicle_mass_geometry/tires/engine/
+  transmission/brakes/aero/fuel` 1:1 + `vehicle_gear_ratios` and
+  `vehicle_torque_curve` 1:N). The flat solver-dict contract is preserved
+  by `src/database/vehicle_mapping.py` (declarative decompose/recompose).
+  Legacy JSONB databases are converted with `make migrate` (idempotent).
 - `src/database/db_manager.py` reads `DB_*` env vars and falls back to
   JSON files in `data/` when Postgres is unreachable — the app must keep
   working with no database.
+- The fleet cache (`src/vehicle/fleet`) self-refreshes every 5 s (TTL),
+  so external edits (psql, seed, another session) reach the UI without a
+  restart; `refresh_fleet()` forces it.
 - The `base` image stage is the anchor for a future `api` service (REST)
   when the frontend is split out — add `FROM base AS api`, do not fork a
   second dependency stack.
