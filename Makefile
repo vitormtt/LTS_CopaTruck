@@ -39,6 +39,9 @@ db-shell: check-env ## Open psql inside the db container
 seed: check-env ## Populate Postgres with the fleet presets from data/vehicle_models.json
 	$(COMPOSE) exec app python src/database/seed_db.py
 
+migrate: check-env ## Apply relational schema + migrate legacy JSONB vehicles
+	$(COMPOSE) exec app python src/database/migrate.py
+
 test: ## Run the pytest suite locally (.venv)
 	.venv/bin/python -m pytest -q
 
