@@ -52,3 +52,24 @@ def test_non_compliance_weight():
     validation = validate_regulation_compliance(vp)
     assert validation["compliant"] is False
     assert any("weight" in err.lower() for err in validation["errors"])
+
+
+def test_season_weight_limits_2025_vs_2026():
+    """4 890 kg passes the 2025 rulebook but fails 2026 (4 950 kg)."""
+    vp = copa_truck_2dof_default()
+    vp.mass_geometry.wheelbase = 3.5
+    vp.mass_geometry.lr = 1.9
+    vp.mass_geometry.lf = 1.6
+    vp.mass_geometry.track_width_front = 2.10
+    vp.mass_geometry.track_width_rear = 2.10
+    vp.mass_geometry.mass = 4890.0
+
+    v2025 = validate_regulation_compliance(vp, season=2025)
+    assert v2025["compliant"] is True, v2025["errors"]
+
+    v2026 = validate_regulation_compliance(vp, season=2026)
+    assert v2026["compliant"] is False
+    assert any("4950" in err for err in v2026["errors"])
+
+    vp.mass_geometry.mass = 4950.0
+    assert validate_regulation_compliance(vp, season=2026)["compliant"] is True

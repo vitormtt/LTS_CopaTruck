@@ -16,9 +16,9 @@ def _make_compliant_vw_copy() -> VehicleParams:
     """VW 31320 with geometry adjusted to pass the CBA regulation checks."""
     vp = get_vehicle_by_id("volkswagen_31320")
     mg = vp.mass_geometry
-    mg.mass = 4890.0           # >= 4890 kg minimum with pilot
+    mg.mass = 4950.0           # >= 4950 kg minimum with pilot (CBA 2026)
     mg.lf = 1.65
-    mg.lr = 1.95               # (4890-90) * (1.95/3.6) = 2600 kg front >= 2520
+    mg.lr = 1.95               # front axle (2025 rule): (4950-90)*(1.95/3.6) = 2632 kg
     mg.wheelbase = 3.60        # within 3.25-3.85 m window
     mg.track_width_front = 2.14  # outer = 2.455 m <= 2.465 m limit
     mg.track_width_rear = 2.14
