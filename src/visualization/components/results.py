@@ -193,8 +193,61 @@ def generate_pdf_report(res: dict, circuit: Any, meta: dict, vehicle_name: str, 
         pass
 
 
+def _render_simulation_history() -> None:
+    """Persisted run history (PostgreSQL, JSON fallback) with filters.
+
+    This is the cross-reference base: every Run/Batch simulation lands
+    here, so vehicles, setups and solver iterations can be compared
+    against previous results.
+    """
+    from src.database import db_manager
+    from src.vehicle.fleet import list_vehicles
+
+    with st.expander("📚 Simulation History (database)"):
+        col_v, col_t, col_r = st.columns([2, 2, 1])
+        fleet_names = list_vehicles()
+        with col_v:
+            vehicle_filter = st.selectbox(
+                "Vehicle", ["(all)"] + list(fleet_names.keys()),
+                format_func=lambda x: fleet_names.get(x, x), key="hist_vehicle"
+            )
+        with col_t:
+            track_filter = st.text_input(
+                "Track contains", "", key="hist_track",
+                help="Filter by track id substring (e.g. cascavel)"
+            )
+        with col_r:
+            st.write("")
+            st.button("↻ Reload", key="hist_reload", width="stretch")
+
+        rows = db_manager.list_simulation_results(
+            vehicle_id=None if vehicle_filter == "(all)" else vehicle_filter
+        )
+        if track_filter.strip():
+            rows = [r for r in rows if track_filter.strip().lower() in str(r.get("track_id", ""))]
+
+        if not rows:
+            st.info("No persisted runs yet — every Run/Batch simulation is saved here.")
+            return
+
+        hist = pd.DataFrame(rows)
+        display_cols = [c for c in (
+            "created_at", "vehicle_id", "track_id", "mode", "setup_name",
+            "lap_time", "max_speed_kmh", "time_wot_pct", "time_braking_pct",
+            "fuel_total_l", "final_tyre_temp_c",
+        ) if c in hist.columns]
+        hist = hist[display_cols].copy()
+        if "lap_time" in hist.columns:
+            best = hist["lap_time"].min()
+            hist["delta_to_best"] = hist["lap_time"] - best
+            hist["lap_time"] = hist["lap_time"].apply(fmt_laptime)
+        st.caption(f"{len(hist)} run(s) — delta_to_best compares lap times inside this filter.")
+        st.dataframe(hist, width="stretch", hide_index=True)
+
+
 def resultados_page() -> None:
     st.header("🏁 Results & Telemetry Dashboard")
+    _render_simulation_history()
     init_session_state()
 
     if not st.session_state.get("resultados_prontos", False):

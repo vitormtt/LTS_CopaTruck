@@ -12,7 +12,12 @@ import pandas as pd
 import streamlit as st
 
 from src.vehicle.fleet import list_vehicles, get_vehicle_by_id
-from .helpers import init_session_state, cached_solver, fmt_laptime
+from .helpers import (
+    cached_solver,
+    fmt_laptime,
+    init_session_state,
+    persist_simulation_result,
+)
 
 
 def batch_run_page() -> None:
@@ -103,6 +108,15 @@ def batch_run_page() -> None:
                     use_cache=not force_rerun
                 )
                 dt = time.perf_counter() - t0
+
+                # Every batch run also lands in the simulation history
+                persist_simulation_result(
+                    vehicle_id=vid,
+                    track_name=st.session_state.circuit_meta["name"],
+                    mode=mode_key,
+                    setup_name="batch",
+                    result=r,
+                )
 
                 results_list.append({
                     "Vehicle": all_vehicles[vid],

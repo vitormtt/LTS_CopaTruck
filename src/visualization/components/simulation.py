@@ -9,7 +9,13 @@ import time
 from datetime import datetime
 import numpy as np
 import streamlit as st
-from .helpers import RESULTS_PATH, cached_solver, fmt_laptime, init_session_state
+from .helpers import (
+    RESULTS_PATH,
+    cached_solver,
+    fmt_laptime,
+    init_session_state,
+    persist_simulation_result,
+)
 
 
 def simulacao_page() -> None:
@@ -109,10 +115,21 @@ def simulacao_page() -> None:
                         "result_obj": result,
                     })
 
+                    # Persist the run so the history can cross-reference it
+                    saved = persist_simulation_result(
+                        vehicle_id=st.session_state.vehicle_id,
+                        track_name=st.session_state.circuit_meta["name"],
+                        mode=sim_mode_key,
+                        setup_name=label,
+                        result=result,
+                        csv_path=csv_path,
+                    )
+
                     st.success(
                         f"✓ Lap Completed: **{fmt_laptime(result['lap_time'])}** — "
                         f"Vmax: **{float(np.max(result['v_profile'])*3.6):.1f} km/h** — "
                         f"Compute time: {elapsed:.3f}s"
+                        + (" — saved to history 🗄️" if saved else "")
                     )
                 except Exception as exc:
                     import traceback
