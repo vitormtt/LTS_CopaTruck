@@ -1,0 +1,17 @@
+# Development overrides — picked up automatically by `docker compose up`.
+# Bind-mounts the working tree over the image so code/data edits reflect
+# immediately (Streamlit reruns on save). Production-like runs should use
+# `docker compose -f docker-compose.yml up` to skip this file.
+services:
+  app:
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./tracks:/app/tracks
+    command:
+      [
+        "streamlit", "run", "src/visualization/interface.py",
+        "--server.address=0.0.0.0", "--server.port=8501",
+        "--server.headless=true", "--browser.gatherUsageStats=false",
+        "--server.runOnSave=true",
+      ]
