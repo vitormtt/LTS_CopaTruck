@@ -125,9 +125,19 @@ def list_vehicle_ids() -> list:
     return list(_FLEET_REGISTRY.keys()) + list(_JSON_MODELS_CACHE.keys())
 
 
+def refresh_fleet() -> None:
+    """Invalidate the preset cache so newly persisted models become visible.
+
+    Call after db_manager.save_vehicle() (or any preset write) — the cache
+    is rebuilt from the database/JSON on the next fleet access.
+    """
+    _JSON_MODELS_CACHE.clear()
+
+
 __all__ = [
     "get_vehicle_by_id",
     "list_vehicles",
     "list_vehicle_ids",
+    "refresh_fleet",
 ]
 
