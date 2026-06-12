@@ -205,12 +205,17 @@ def apply_setup(base_params: VehicleParams, setup: VehicleSetup) -> VehicleParam
     cs_scale = 1.0 + _CS_CHANGE_PER_BAR * pressure_delta
     mu_scale = 1.0 + _MU_CHANGE_PER_BAR * pressure_delta
 
+    psi_val = setup.tyre_pressure * 14.5038
     new_tire = replace(
         base_params.tire,
         cornering_stiffness_front=base_params.tire.cornering_stiffness_front * cs_scale,
         cornering_stiffness_rear=base_params.tire.cornering_stiffness_rear * cs_scale,
         friction_coefficient=base_params.tire.friction_coefficient * mu_scale,
         cold_pressure_bar=setup.tyre_pressure,
+        cold_pressure_lf_psi=psi_val,
+        cold_pressure_fr_psi=psi_val,
+        cold_pressure_lr_psi=psi_val,
+        cold_pressure_rr_psi=psi_val,
     )
 
     new_aero = replace(
