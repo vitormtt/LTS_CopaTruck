@@ -18,7 +18,7 @@ from src.simulation.lap_time_solver import (  # noqa: E402
 )
 from src.simulation.simulation_modes import SimulationConfig  # noqa: E402
 from src.tracks.hdf5 import CircuitHDF5Reader  # noqa: E402
-from src.vehicle.engine import ICEEngine  # noqa: E402  (import sanity)
+from saru_core.vehicle.engine import ICEEngine  # noqa: E402  (import sanity)
 from src.vehicle.fleet import get_vehicle_by_id  # noqa: E402
 from src.vehicle.parameters import EngineParams  # noqa: E402
 from src.vehicle.setup import get_default_setup  # noqa: E402
