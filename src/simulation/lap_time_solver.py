@@ -77,19 +77,11 @@ class _LegacyVehicleParams:
     pacejka_C: float = 1.3
     pacejka_D: float = 1.0
     pacejka_E: float = 0.97
-    # Brake disc thermal model (ENDURANCE_THERMAL)
-    disc_thermal_efficiency: float = 0.90
-    disc_mass_kg: float = 30.0
-    disc_specific_heat: float = 460.0
-    disc_convection: float = 60.0
-    disc_area_m2: float = 0.35
-    disc_initial_temp_c: float = 60.0
-    fade_onset_temp_c: float = 450.0
-    fade_full_temp_c: float = 800.0
-    fade_min_factor: float = 0.5
     Cx: float = 0.85
     A_front: float = 8.7
     Cl: float = 0.0
+    aero_balance: float = 0.5
+    combined_grip_factor: float = 0.9
     k_roll_front: float = 115_000.0
     k_roll_rear: float = 115_000.0
     track_width: float = 1.565
@@ -191,11 +183,6 @@ class SimulationResult:
     _a_long_ms2: np.ndarray = field(repr=False, default=None)
     _a_lat_ms2: np.ndarray = field(repr=False, default=None)
 
-    # ENDURANCE_THERMAL channels (None in other modes)
-    disc_temp_front_c: Optional[np.ndarray] = None
-    disc_temp_rear_c: Optional[np.ndarray] = None
-    brake_fade_factor: Optional[np.ndarray] = None
-
     # Axle slip-angle channels (steady-state bicycle model, Cf/Cr)
     front_slip_angle_deg: Optional[np.ndarray] = None
     rear_slip_angle_deg: Optional[np.ndarray] = None
@@ -287,10 +274,6 @@ class SimulationResult:
             "tyre_press_bar": self.tyre_pressure_bar,
             "fuel_used_l":    self.fuel_used_l,
         })
-        if self.disc_temp_front_c is not None:
-            df["disc_temp_front_c"] = self.disc_temp_front_c
-            df["disc_temp_rear_c"] = self.disc_temp_rear_c
-            df["brake_fade_factor"] = self.brake_fade_factor
         if self.front_slip_angle_deg is not None:
             df["front_slip_angle_deg"] = self.front_slip_angle_deg
             df["rear_slip_angle_deg"] = self.rear_slip_angle_deg
@@ -621,10 +604,17 @@ def _axle_grip(
     Calculates individual normal forces on the 4 wheels and adjusts the friction coefficient
     at each corner based on hot tire pressure (PSI) and temperature (degC).
     """
-    F_normal = max(m_cur * _G + _aero_normal_force(p, v),
-                   _F_NORMAL_FLOOR_FRAC * m_cur * _G)
-    Fz_f_static = F_normal * p.lr / p.L
-    Fz_r_static = F_normal * p.lf / p.L
+    F_aero = _aero_normal_force(p, v)
+    # Distribute weight by CG position, and aero downforce by aero_balance (CoP)
+    Fz_f_static = (m_cur * _G * p.lr / p.L) + (F_aero * p.aero_balance)
+    Fz_r_static = (m_cur * _G * p.lf / p.L) + (F_aero * (1.0 - p.aero_balance))
+    
+    # Enforce floor limits per axle to prevent singularities
+    floor_f = _F_NORMAL_FLOOR_FRAC * m_cur * _G * (p.lr / p.L)
+    floor_r = _F_NORMAL_FLOOR_FRAC * m_cur * _G * (p.lf / p.L)
+    Fz_f_static = max(Fz_f_static, floor_f)
+    Fz_r_static = max(Fz_r_static, floor_r)
+    F_normal = Fz_f_static + Fz_r_static
 
     k_total = max(p.k_roll_front + p.k_roll_rear, 1.0)
     frac_f = p.k_roll_front / k_total
@@ -822,9 +812,10 @@ def _backward_pass(
         # All four wheels brake: capacity-weighted total friction
         mu_total = (mu_f * Fz_f + mu_r * Fz_r) / F_normal
 
-        a_grip = np.sqrt(max(
-            (mu_total * F_normal / m_cur) ** 2 - a_lat_next ** 2, 0.0
-        ))
+        a_grip_pure = mu_total * F_normal / m_cur
+        a_grip = np.sqrt(max(a_grip_pure ** 2 - a_lat_next ** 2, 0.0))
+        if a_lat_next > 0.1 * a_grip_pure:
+            a_grip *= p.combined_grip_factor
         cap = _brake_system_cap(p, mu_total, m_cur, F_normal)
         if fade is not None:
             cap *= fade[i + 1]
@@ -1015,9 +1006,10 @@ def _run_ggv_solver(
         # transfer m*a*h/L (evaluated with the previous step's accel)
         Fz_r_trac = Fz_r + m_cur * max(a_long_prev, 0.0) * p.h_cg / p.L
         F_yr_used = m_cur * a_lat_cur * p.lf / p.L
-        F_trac_grip = np.sqrt(max(
-            (mu_r * Fz_r_trac) ** 2 - F_yr_used ** 2, 0.0
-        ))
+        F_trac_pure = mu_r * Fz_r_trac
+        F_trac_grip = np.sqrt(max(F_trac_pure ** 2 - F_yr_used ** 2, 0.0))
+        if F_yr_used > 0.1 * F_trac_pure:
+            F_trac_grip *= p.combined_grip_factor
         F_traction = min(F_traction, F_trac_grip)
 
         a = (F_traction - F_drag) / m_cur
@@ -1108,147 +1100,6 @@ def _run_ggv_solver(
     }
 
 
-# ---------------------------------------------------------------------------
-# Brake disc thermal model (ENDURANCE_THERMAL mode)
-# ---------------------------------------------------------------------------
-
-def _run_thermal_brake_model(
-    v_profile: np.ndarray,
-    ds: np.ndarray,
-    p: _LegacyVehicleParams,
-    ambient_temp_c: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Lumped-mass disc temperature and fade traces for a speed profile.
-
-    Per braking step, the dissipated kinetic power routed to the discs is
-
-        q = eta_disc * m * |a_brake| * v
-
-    split front/rear by the brake balance and onto two discs per axle.
-    Each axle's lumped disc integrates
-
-        m_d * c_p * dT = (q_disc - h(v) * A * (T - T_amb)) * dt
-
-    with speed-scaled forced convection h(v) = h0 * (1 + 0.04 v)
-    (rotating-disc forced convection, Limpert 1999). The fade factor
-    degrades linearly from 1.0 at fade_onset_temp_c down to
-    fade_min_factor at fade_full_temp_c, driven by the hotter axle.
-
-    Args:
-        v_profile: Speed at each track point [m/s].
-        ds: Segment lengths [m].
-        p: Flat solver parameters (brake thermal fields).
-        ambient_temp_c: Ambient air temperature [degC].
-
-    Returns:
-        Tuple (T_front, T_rear, fade_factor) — arrays of length n.
-    """
-    n = len(v_profile)
-    T_front = np.full(n, p.disc_initial_temp_c)
-    T_rear = np.full(n, p.disc_initial_temp_c)
-    fade = np.ones(n)
-
-    m_total = p.m + p.initial_fuel_l * p.fuel_density
-    b_front = p.brake_balance / 100.0
-    heat_cap = p.disc_mass_kg * p.disc_specific_heat  # [J/K] per disc
-
-    fade_span = max(p.fade_full_temp_c - p.fade_onset_temp_c, 1e-6)
-
-    for i in range(1, n):
-        v_prev = v_profile[i - 1]
-        dt = ds[i] / max(v_profile[i], 0.1)
-        dt = min(dt, 2.0)
-
-        a_actual = ((v_profile[i] ** 2 - v_prev ** 2) / (2.0 * ds[i])
-                    if ds[i] > 0 else 0.0)
-
-        if a_actual < 0.0:
-            q_total = p.disc_thermal_efficiency * m_total * (-a_actual) * v_prev
-        else:
-            q_total = 0.0
-
-        # Two discs per axle
-        q_front_disc = q_total * b_front / 2.0
-        q_rear_disc = q_total * (1.0 - b_front) / 2.0
-
-        h_conv = p.disc_convection * (1.0 + 0.04 * v_prev)
-        for T_arr, q_disc in ((T_front, q_front_disc), (T_rear, q_rear_disc)):
-            cooling = h_conv * p.disc_area_m2 * (T_arr[i - 1] - ambient_temp_c)
-            T_arr[i] = T_arr[i - 1] + (q_disc - cooling) * dt / heat_cap
-
-        T_hot = max(T_front[i], T_rear[i])
-        fade[i] = float(np.clip(
-            1.0 - (1.0 - p.fade_min_factor)
-            * (T_hot - p.fade_onset_temp_c) / fade_span,
-            p.fade_min_factor, 1.0,
-        ))
-
-    return T_front, T_rear, fade
-
-
-def _run_endurance_thermal(
-    p, x, y, n, ds, s, radius, kappa, mu, v0,
-    temp_ini, p_tyre_cold,
-    torque_map_rpm, torque_map_nm,
-    ambient_temp_c: float,
-    thermal_iterations: int,
-    temp_LF_ini: Optional[float] = None,
-    temp_RF_ini: Optional[float] = None,
-    temp_LR_ini: Optional[float] = None,
-    temp_RR_ini: Optional[float] = None,
-) -> dict:
-    """
-    ENDURANCE_THERMAL solver: GGV lap with brake-fade feedback.
-
-    Wraps the standard two-pass GGV solver without modifying it: the
-    lap is first solved normally, then the disc thermal model and a
-    fade-scaled shared backward pass iterate to a fixed point (fade
-    only ever reduces braking capacity, so the lap time is
-    non-decreasing per iteration and convergence is monotonic).
-
-    With fade disabled (onset temperature above any reached disc
-    temperature) the output is bit-identical to the QUALIFYING mode.
-    """
-    raw = _run_ggv_solver(
-        p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-        mu=mu, v0=v0,
-        temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-        torque_map_rpm=torque_map_rpm,
-        torque_map_nm=torque_map_nm,
-        temp_LF_ini=temp_LF_ini,
-        temp_RF_ini=temp_RF_ini,
-        temp_LR_ini=temp_LR_ini,
-        temp_RR_ini=temp_RR_ini,
-    )
-
-    T_front, T_rear, fade = _run_thermal_brake_model(
-        raw["v_profile"], ds, p, ambient_temp_c
-    )
-
-    for _ in range(max(thermal_iterations, 1)):
-        if np.all(fade >= 1.0 - 1e-12):
-            break  # no fade: untouched GGV result is the fixed point
-
-        v_profile = raw["v_profile"]
-        fuel_acum = raw["fuel_acum"]
-
-        _backward_pass(
-            v_profile, fuel_acum, p, mu, ds, radius, fade=fade,
-            temp_LF=raw.get("temp_LF"), temp_RF=raw.get("temp_RF"),
-            temp_LR=raw.get("temp_LR"), temp_RR=raw.get("temp_RR")
-        )
-        raw.update(_finalize_pass(v_profile, fuel_acum, p, ds, radius))
-
-        T_front, T_rear, fade = _run_thermal_brake_model(
-            v_profile, ds, p, ambient_temp_c
-        )
-
-    raw["disc_temp_front"] = T_front
-    raw["disc_temp_rear"] = T_rear
-    raw["brake_fade_factor"] = fade
-    return raw
-
 
 # ---------------------------------------------------------------------------
 # Standing start solver
@@ -1333,9 +1184,10 @@ def _run_standing_start(
             )
         else:
             F_yr_used = m_cur * a_lat_cur * p.lf / p.L
-            F_trac_grip = np.sqrt(max(
-                (mu_r * Fz_r_trac) ** 2 - F_yr_used ** 2, 0.0
-            ))
+            F_trac_pure = mu_r * Fz_r_trac
+            F_trac_grip = np.sqrt(max(F_trac_pure ** 2 - F_yr_used ** 2, 0.0))
+            if F_yr_used > 0.1 * F_trac_pure:
+                F_trac_grip *= p.combined_grip_factor
             F_traction = min(F_traction_e, F_trac_grip)
 
         launch_dist_accum += ds[i]
@@ -1458,7 +1310,7 @@ def run_simulation(
     temp_ini    = config.track_temperature_c + 5.0
     p_tyre_cold = config.setup.tyre_pressure_avg_front
 
-    if config.is_qualifying() or config.is_thermal():
+    if config.is_qualifying():
         v0 = 10.0
     elif config.is_flying_lap():
         v0 = config.v_entry_kmh / 3.6
@@ -1480,16 +1332,6 @@ def run_simulation(
             p_tyre_cold=p_tyre_cold,
             torque_map_rpm=torque_map_rpm,
             torque_map_nm=torque_map_nm,
-        )
-    elif config.is_thermal():
-        raw = _run_endurance_thermal(
-            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-            mu=mu, v0=v0, temp_ini=temp_ini,
-            p_tyre_cold=p_tyre_cold,
-            torque_map_rpm=torque_map_rpm,
-            torque_map_nm=torque_map_nm,
-            ambient_temp_c=config.ambient_temp_c,
-            thermal_iterations=config.thermal_iterations,
         )
     else:
         raw = _run_ggv_solver(
@@ -1523,7 +1365,10 @@ def run_simulation(
             p, mu, m_cur, v, a_lat, t_lf, t_fr, t_lr, t_rr
         )
         mu_total = (mu_f * Fz_f + mu_r * Fz_r) / F_normal
-        a_grip = np.sqrt(max((mu_total * F_normal / m_cur) ** 2 - a_lat ** 2, 0.0))
+        a_grip_pure = mu_total * F_normal / m_cur
+        a_grip = np.sqrt(max(a_grip_pure ** 2 - a_lat ** 2, 0.0))
+        if a_lat > 0.1 * a_grip_pure:
+            a_grip *= p.combined_grip_factor
         cap = _brake_system_cap(p, mu_total, m_cur, F_normal)
         if raw.get("brake_fade_factor") is not None:
             cap *= raw["brake_fade_factor"][i]
@@ -1552,9 +1397,6 @@ def run_simulation(
         fuel_used_l       = raw["fuel_acum"],
         _a_long_ms2       = a_long,
         _a_lat_ms2        = raw["a_lat"],
-        disc_temp_front_c = raw.get("disc_temp_front"),
-        disc_temp_rear_c  = raw.get("disc_temp_rear"),
-        brake_fade_factor = raw.get("brake_fade_factor"),
         front_slip_angle_deg = raw["front_slip_angle_deg"],
         rear_slip_angle_deg  = raw["rear_slip_angle_deg"],
     )
@@ -1611,8 +1453,6 @@ def run_bicycle_model(
     mode_str = config.get("mode", "qualifying")
     if mode_str == "standing_start":
         sim_mode = SimulationMode.STANDING_START
-    elif mode_str == "endurance_thermal":
-        sim_mode = SimulationMode.ENDURANCE_THERMAL
     else:
         sim_mode = SimulationMode.QUALIFYING
 
@@ -1634,9 +1474,6 @@ def run_bicycle_model(
     if sim_mode == SimulationMode.STANDING_START:
         sim_config.launch_rpm = float(config.get("launch_rpm", 1500.0))
         sim_config.wheelspin_limit_slip = float(config.get("wheelspin_limit", 0.15))
-    elif sim_mode == SimulationMode.ENDURANCE_THERMAL:
-        sim_config.ambient_temp_c = float(config.get("ambient_temp_c", 25.0))
-        sim_config.thermal_iterations = int(config.get("thermal_iterations", 3))
 
     result = run_simulation(
         config=sim_config,
@@ -1663,10 +1500,6 @@ def run_bicycle_model(
         "brake_pct":    result.brake_pct,
         "steering_deg": result.steering_deg,
     }
-    if result.disc_temp_front_c is not None:
-        legacy["disc_temp_front"] = result.disc_temp_front_c
-        legacy["disc_temp_rear"] = result.disc_temp_rear_c
-        legacy["brake_fade_factor"] = result.brake_fade_factor
     if result.front_slip_angle_deg is not None:
         legacy["front_slip_angle_deg"] = result.front_slip_angle_deg
         legacy["rear_slip_angle_deg"] = result.rear_slip_angle_deg

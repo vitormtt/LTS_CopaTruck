@@ -83,8 +83,6 @@ def test_solver_regression(case_id: str) -> None:
     elif mode == "standing_start":
         sim_config = SimulationConfig.standing_start(track_id=track_id)
         sim_config.launch_rpm = 1500.0  # Diesel truck launch RPM
-    elif mode == "endurance_thermal":
-        sim_config = SimulationConfig.endurance_thermal(track_id=track_id)
     else:
         pytest.fail(f"Unknown mode: {mode}")
         
