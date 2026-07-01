@@ -78,6 +78,7 @@ class TireParams:
     cornering_stiffness_rear: float   # Rear axle cornering stiffness [N/rad]
     friction_coefficient: float       # Peak friction coefficient mu [-]
     wheel_radius: float               # Effective rolling radius [m]
+    combined_grip_factor: float = 0.9 # Non-linear derating factor for combined slip limits [-]
 
     # Pacejka Magic Formula coefficients (nonlinear models)
     pacejka_B: float = 10.0   # Stiffness factor [-]
@@ -120,6 +121,7 @@ class AeroParams:
     frontal_area: float       # Frontal area [m²]
     lift_coefficient: float   # Cl [-] (negative = downforce)
     air_density: float = 1.225  # Air density [kg/m³] at sea level, 15°C
+    aero_balance: float = 0.5   # Fraction of aerodynamic downforce on the front axle (0.0 to 1.0)
 
 
 @dataclass
@@ -381,6 +383,7 @@ class VehicleParams:
             'Cr': self.tire.cornering_stiffness_rear,
             'mu': self.tire.friction_coefficient,
             'r_wheel': self.tire.wheel_radius,
+            'combined_grip_factor': self.tire.combined_grip_factor,
             # Pacejka coefficients (used by ThermalPacejkaTire)
             'pacejka_B': self.tire.pacejka_B,
             'pacejka_C': self.tire.pacejka_C,
@@ -430,6 +433,7 @@ class VehicleParams:
             'Cx': self.aero.drag_coefficient,
             'A_front': self.aero.frontal_area,
             'Cl': self.aero.lift_coefficient,
+            'aero_balance': self.aero.aero_balance,
 
             # --- Fuel model ---
             'fuel_per_km': self.fuel_consumption_l_per_km,  # legacy, unused by solver
@@ -470,6 +474,7 @@ class VehicleParams:
                 cornering_stiffness_rear=data.get('Cr', 120000.0),
                 friction_coefficient=data.get('mu', 1.1),
                 wheel_radius=data.get('r_wheel', 0.65),
+                combined_grip_factor=data.get('combined_grip_factor', 0.9),
                 pacejka_B=data.get('pacejka_B', 10.0),
                 pacejka_C=data.get('pacejka_C', 1.3),
                 pacejka_D=data.get('pacejka_D', 1.0),
@@ -484,6 +489,7 @@ class VehicleParams:
                 drag_coefficient=data.get('Cx', 0.85),
                 frontal_area=data.get('A_front', 8.7),
                 lift_coefficient=data.get('Cl', 0.0),
+                aero_balance=data.get('aero_balance', 0.5),
             ),
             engine=EngineParams(
                 max_power=data.get('P_max', 600000.0),
@@ -567,11 +573,13 @@ def copa_truck_2dof_default() -> VehicleParams:
             cornering_stiffness_rear=135000.0,
             friction_coefficient=1.62,
             wheel_radius=0.65,
+            combined_grip_factor=0.90,
         ),
         aero=AeroParams(
             drag_coefficient=0.80,
             frontal_area=8.7,
             lift_coefficient=0.0,
+            aero_balance=0.5,
         ),
         engine=EngineParams(
             max_power=850000.0,
