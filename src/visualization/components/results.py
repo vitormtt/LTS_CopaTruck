@@ -250,6 +250,32 @@ def resultados_page() -> None:
     _render_simulation_history()
     init_session_state()
 
+    # --- Sweep Results (PCP) ---
+    if st.session_state.get("sweep_results_df") is not None and not st.session_state.sweep_results_df.empty:
+        df_sweep = st.session_state.sweep_results_df
+        st.subheader("📊 Setup Sweep Sensitivity Analysis (PCP)")
+        st.markdown("Use this Parallel Coordinates Plot to find the optimal setup. **Drag the axes to filter** and analyze trade-offs.")
+        
+        fig_pcp = go.Figure(data=
+            go.Parcoords(
+                line=dict(color=df_sweep['Lap Time'],
+                          colorscale='RdYlGn_r', # Red is high (slow), Green is low (fast)
+                          showscale=True,
+                          cmin=df_sweep['Lap Time'].min(),
+                          cmax=df_sweep['Lap Time'].max()),
+                dimensions=[
+                    dict(label='CG Height [m]', values=df_sweep['CG Height']),
+                    dict(label='Aero Balance (CoP)', values=df_sweep['Aero Balance']),
+                    dict(label='Max Lat G', values=df_sweep['Max Lat G']),
+                    dict(label='Max Speed [km/h]', values=df_sweep['Max Speed']),
+                    dict(label='Lap Time [s]', values=df_sweep['Lap Time'])
+                ]
+            )
+        )
+        fig_pcp.update_layout(height=400, margin=dict(l=40, r=40, t=40, b=40))
+        st.plotly_chart(fig_pcp, use_container_width=True)
+        st.markdown("---")
+
     if not st.session_state.get("resultados_prontos", False):
         st.warning("⚠️ Run a simulation in the 'Simulation' tab first.")
         return
@@ -431,19 +457,40 @@ def resultados_page() -> None:
         st.plotly_chart(fig_rpm, width="stretch")
 
     with col_g6:
+        # G-Sum Calculation for Brake Trace Analysis
+        g_sum = np.sqrt(alon_g**2 + alat_g**2)
+        
         fig_ggv = go.Figure()
         fig_ggv.add_trace(go.Scatter(
             x=alat_g, y=alon_g, mode='markers',
-            marker=dict(size=3, color=v_kmh, colorscale='Viridis',
-                        colorbar=dict(title='km/h')),
+            marker=dict(size=3, color=g_sum, colorscale='Plasma',
+                        colorbar=dict(title='G-Sum')),
         ))
         fig_ggv.update_layout(
-            title='GGV Diagram', xaxis_title='Lat G', yaxis_title='Long G',
+            title='GGV Diagram (Color = G-Sum Magnitude)', xaxis_title='Lat G', yaxis_title='Long G',
             height=400, yaxis_range=[-1.5, 1.5], xaxis_range=[-1.5, 1.5],
             margin=dict(l=0, r=0, t=30, b=0),
         )
         fig_ggv.update_yaxes(scaleanchor='x', scaleratio=1)
         st.plotly_chart(fig_ggv, width="stretch")
+
+    # --- Brake Trace Analysis (Trail-Braking) ---
+    st.subheader("🛑 Brake Trace Analysis (Trail-Braking)")
+    st.markdown("Detailed view of the G-Sum transition from pure braking to pure cornering.")
+    
+    col_bt1, col_bt2 = st.columns(2)
+    with col_bt1:
+        fig_bt = go.Figure()
+        # Only show where braking is active or transitioning (a_long < -0.1)
+        fig_bt.add_trace(go.Scatter(x=dist, y=np.abs(alon_g), mode='lines',
+                                    name='Long Decel (G)', line=dict(color='seagreen', width=2)))
+        fig_bt.add_trace(go.Scatter(x=dist, y=np.abs(alat_g), mode='lines',
+                                    name='Lat G (Absolute)', line=dict(color='tomato', width=2)))
+        fig_bt.add_trace(go.Scatter(x=dist, y=g_sum, mode='lines',
+                                    name='G-Sum Magnitude', line=dict(color='darkmagenta', width=2, dash='dot')))
+        fig_bt.update_layout(title='Braking Transition (G-Sum)', height=280,
+                             margin=dict(l=0, r=0, t=30, b=0))
+        st.plotly_chart(fig_bt, width="stretch")
 
     # --- Fuel consumption (dynamic BSFC model) ---
     col_f1, col_f2 = st.columns(2)
@@ -468,45 +515,7 @@ def resultados_page() -> None:
                                margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig_flow, width="stretch")
 
-    # --- Brake disc thermal channels (ENDURANCE_THERMAL mode only) ---
-    if 'disc_temp_front' in res:
-        st.markdown("---")
-        st.subheader("🔥 Brake Thermal Analysis")
-        vp_brake = getattr(vp, 'brake', None)
-        fade_onset = float(getattr(vp_brake, 'fade_onset_temp_c', 450.0))
 
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            fig_disc = go.Figure()
-            fig_disc.add_trace(go.Scatter(
-                x=dist, y=res['disc_temp_front'], mode='lines',
-                name='Front disc', line=dict(color='crimson', width=2)))
-            fig_disc.add_trace(go.Scatter(
-                x=dist, y=res['disc_temp_rear'], mode='lines',
-                name='Rear disc', line=dict(color='darkblue', width=2)))
-            fig_disc.add_hline(y=fade_onset, line_dash='dash',
-                               line_color='orange',
-                               annotation_text='Fade onset')
-            fig_disc.update_layout(title='Brake Disc Temperature (°C)',
-                                   height=300,
-                                   margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_disc, width="stretch")
-        with col_t2:
-            fig_fade = go.Figure()
-            fig_fade.add_trace(go.Scatter(
-                x=dist, y=res['brake_fade_factor'], mode='lines',
-                name='Fade factor', line=dict(color='darkorange', width=2)))
-            fig_fade.update_layout(title='Brake Fade Factor (1.0 = full capacity)',
-                                   height=300, yaxis_range=[0.4, 1.05],
-                                   margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_fade, width="stretch")
-
-        peak_disc = float(max(np.max(res['disc_temp_front']),
-                              np.max(res['disc_temp_rear'])))
-        min_fade = float(np.min(res['brake_fade_factor']))
-        col_m1, col_m2, _, _ = st.columns(4)
-        col_m1.metric("Peak Disc Temp", f"{peak_disc:.0f} °C")
-        col_m2.metric("Worst Fade Factor", f"{min_fade:.2f}")
 
     # --- Roll & Slip ---
     col_g7, col_g8 = st.columns(2)

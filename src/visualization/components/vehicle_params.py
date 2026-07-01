@@ -370,11 +370,7 @@ def parametros_veiculo_page() -> None:
                 "Max Total Brake Force (N)", 20000.0, 120000.0,
                 float(vp.brake.max_brake_force), step=1000.0, key="vp_brake_force"
             )
-            vp.brake.disc_thermal_efficiency = st.slider(
-                "Disc Thermal Efficiency", 0.5, 1.0,
-                float(vp.brake.disc_thermal_efficiency), step=0.01,
-                key="vp_disc_eff"
-            )
+
 
     st.markdown("---")
     
