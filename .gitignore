@@ -137,6 +137,10 @@ __pycache__/
 # User-saved modified tracks (UI persistence)
 tracks/custom/
 
+# Runtime sim output + stray track dupes (scripts run from wrong CWD)
+data/simulation_results.json
+src/tracks/tracks/
+
 # Quarantined data (large binary files, raw telemetry)
 _quarantine/
 Perez-data/
