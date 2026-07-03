@@ -1,6 +1,6 @@
 # SARU Project Memory — LapTimeSimulator_CopaTruck
 
-> Última atualização: 2026-06-30
+> Última atualização: 2026-07-03
 > LER ao iniciar. ATUALIZAR ao final de cada tarefa.
 
 ---
@@ -15,11 +15,12 @@
 
 ---
 
-## 2. Estado Atual (2026-06-30)
+## 2. Estado Atual (2026-07-03)
 
 ### Testes
-- **101 testes passam** (5 skipped) — Suíte limpa de dependências externas e testes termais removidos.
-- Sem venv próprio funcional local (usando pytest global ou do saru-core para execução).
+- **125 testes passam** (`.venv/bin/python -m pytest -q`, venv `uv` local funcional).
+- ⚠️ Passar não valida física: em 2026-07-02 os baselines de regressão foram regenerados e
+  o assert de Cascavel afrouxado (76–82 s → 70–82 s) junto com a edição dos presets — ver §6.
 
 ### Solver & física
 - **Solver**: Two-pass QSS 2DOF (forward + backward) — Ponto massa validado.
@@ -30,10 +31,11 @@
 - **Aero**: Cd/Cl constante por veículo
 
 ### Veículos (`data/vehicle_models.json`)
-- `volkswagen_31320` (default), `scania_r480`, `volvo_fh16` + presets Porsche/GT3 (calibração)
+- `volkswagen_31320` (default), `scania_r480`, `volvo_fh16`, `vw_31320_copa_truck_racing_copy_correto`
+- ⚠️ Working tree ≠ HEAD desde 2026-07-02 21:04 (migração ZF 6M + contaminação de params de carro — §6)
 
 ### Pistas (`tracks/*.hdf5`)
-- `cascavel.hdf5`, `interlagos.hdf5`, `brasilia.hdf5` + custom em `tracks/custom/`
+- `cascavel.hdf5`, `interlagos.hdf5` (brasilia.hdf5 não existe mais no repo)
 
 ---
 
@@ -54,7 +56,7 @@ src/
     kpis.py
   vehicle/
     parameters.py         ← VehicleParams + sub-dataclasses
-    fleet.py              ← cache TTL 5s, PostgreSQL/JSON fallback
+    fleet/                ← pacote (cache TTL 5s, PostgreSQL/JSON fallback)
     engine.py             ← ICEEngine local restaurado
     setup.py
   tracks/
@@ -80,14 +82,63 @@ src/
 
 ---
 
-## 6. Pendências
+## 6. Auditoria e Calibração (2026-07-03) — SoT: `docs/CALIBRATION_AUDIT_2026-07-03.md`
 
+**1. Infraestrutura do MVP (verificado em runtime)**
+- **Docker**: infra completa existe (`Dockerfile` multi-stage + `docker-compose.yml` com app
+  Streamlit + Postgres 16 + healthchecks + init schema), **mas nenhum container do projeto
+  roda hoje** (`docker ps`: só stack saru-os).
+- **Banco**: PostgreSQL implementado (`db_manager` + schema + mapping), porém **não usado em
+  runtime**: sem `.env`, conexão a `localhost:5432` (que é o Postgres do saru-os) falha auth e
+  o app opera 100% em **fallback JSON** (`data/vehicle_models.json` = fonte real dos presets).
+- ⚠️ Porta: subir o compose deste repo conflita com saru-os-postgres (5432). Usar `DB_PORT=5433` no `.env`.
+- Distribuição p/ Pérez: avaliação em `docs/DISTRIBUTION_OPTIONS.md` (recomendação: hosted).
+
+**2. Validação de lap time (medida 2026-07-03, working tree)**
+| Pista | Pole PRO 2025 | Sim HEAD (12M) | Sim working tree (6M+params carro) |
+|---|---|---|---|
+| Cascavel | 1:19.505 | VW **1:19.591 (Δ+0.086 s)** | VW **1:14.368 (Δ−5.1 s)** ❌ |
+| Interlagos | 2:03.905 | VW 2:11.543 (Δ+7.6 s) | VW 2:06.268 (Δ+2.4 s) — cancelamento de erros, não calibração |
+
+- Refs .xrk (Qualy, levantadas 2026-07-02): 2:04.683 (Andre Marques), 2:06.003 (Jô Augusto);
+  web: 2:04.876 (Totti) / 2:05.252 (Pole Elite 2025).
+- Interlagos tem erro dominado pelo centerline ruidoso (~+4 s, LTS_RESEARCH §5) — validar lá
+  só após recaptura do traçado a partir dos GPS dos .xrk.
+
+**3. Estado dos presets (working tree, editado 2026-07-02 21:04, NÃO commitado)**
+- ✅ Migração estrutural correta: ZF 6M (6.75…0.78), final_drive 3.42, r_wheel 0.52.
+- ❌ Contaminação com bloco de carro GT colado nos 4 presets: h_cg 0.68 m, A_front 4.8 m²,
+  Cl −0.5, Iz 7000, wheelbase 3.0 m — quebrou a âncora de Cascavel (5–6 s rápido demais).
+- ❌ Testes afrouxados na mesma edição (assert Cascavel 76–82→70–82 s; baselines regeneradas).
+- ❌ Validador de regulamento: 4/4 presets non-compliant (massa, wheelbase, largura).
+- Diferenciação Scania/Volvo é ficção sem fonte (Copa Truck equaliza via pop-off).
+- **Decisão pendente (Vitor)**: opção A (recomendada) = `git restore` presets+testes p/ HEAD e
+  refazer migração ZF num preset experimental `*_zf6_reference` com recalibração; opção B =
+  corrigir em cima do working tree. Detalhe no doc de auditoria §4.
+
+**4. Pesquisa externa (Vitor executa — agente só prepara)**
+- 7 prompts prontos no doc de auditoria §5 (P1 limitador de velocidade, P2 h_cg/Iz, P3 aero,
+  P4 pneu/µ, P5 transmissão real, P6 curvas de torque, P7 frenagem). Regra: ≥2 fontes,
+  resultados em `docs/research/`, só então promover valores aos presets.
+- Governador 200 km/h hardcoded (`lap_time_solver.py:311`) domina a Vmax nas 2 pistas — P1 é
+  o prompt de maior impacto.
+
+---
+
+## 7. Pendências
+
+- [ ] **Decidir opção A/B** p/ working tree dos presets (auditoria §4) — bloqueia commit
+- [ ] **Rodar prompts P1–P7** no Perplexity/Gemini → `docs/research/` (calibração honesta)
+- [ ] **Recapturar centerline Interlagos** dos GPS dos .xrk (pré-requisito p/ validar lá)
+- [ ] **Calibrar µ/torque/aero** via `scripts/calibrate_vehicle.py` contra .xrk (gate: |Δ|≤0.5 s Cascavel)
 - [ ] **Pérez params**: params físicos reais (bloqueio externo)
 - [x] **Venv própria**: criar `uv` venv local isolada (pyproject.toml) para facilitar o repasse ao Pérez.
 
 ---
 
-## 7. Histórico relevante
+## 8. Histórico relevante
 
 - **2026-06-27**: Fase 1+2+3parcial do merge concluídas.
 - **2026-06-30**: Refatoração profunda para entregar o repositório como MVP desacoplado (sem saru-core) e limpo de IP (sem modelos termais/3DOF) para o Pérez. Testes validados.
+- **2026-07-02**: Sessão paralela criou `docs/DISTRIBUTION_OPTIONS.md` e às 21:04 editou presets (migração ZF 6M correta + contaminação com params de carro) e afrouxou testes — mudanças não commitadas.
+- **2026-07-03**: Auditoria completa de calibração (`docs/CALIBRATION_AUDIT_2026-07-03.md`): lap times medidos HEAD vs working tree, validador de regulamento rodado, infra docker/banco verificada em runtime, 7 prompts de pesquisa preparados.
