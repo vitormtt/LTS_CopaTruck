@@ -23,10 +23,29 @@
   wheelbase 4.4–4.7 m, largura); `vw_31320_copa_truck_racing_copy_correto` **COMPLIANT**
   → candidato a baseline "aproximação por regulamento". Corrigir os 3 muda lap ≥0.5 s →
   precisa OK do Vitor (guardrail de calibração).
-- **Backlog produto (ordem proposta)**: (1) presets → valores de regulamento c/ OK Vitor;
+- **Backlog produto (ordem proposta)**: (1) ~~presets → regulamento~~ ✅ FEITO;
   (2) Pacejka MF simplificado como `TireModel` opcional (diferencial vs OptimumLap);
   (3) deploy hosted + auth (DISTRIBUTION_OPTIONS opção 1; Streamlit + basic auth em VPS);
-  (4) conversor .xrk→CSV empacotado p/ overlay sem fricção; (5) otimização de linha = V2.
+  (4) ~~conversor .xrk→CSV p/ overlay~~ ✅ overlay já aceita .xrk direto; (5) otimização de linha = V2.
+
+### Sessão 2026-07-05 (parte 2) — presets + UI
+- **Frota consolidada**: Scania/Volvo REMOVIDOS (diferenciação sem fonte + non-compliant CBA).
+  Único preset = `volkswagen_31320` = baseline de regulamento (m=4950 kg, wb 3.65 m, gov 200 km/h,
+  compliant). Cascavel 80.69 s / Interlagos 133.17 s (uncalibrated, honesto). Baselines de
+  regressão regeneradas (3 casos VW: cascavel qual+standing, interlagos qual). Testes agora
+  ASSERTAM compliance CBA de todo preset shipped.
+- **Overlay .xrk**: `telemetry_converter.list_laps()` + página aceita upload .xrk (lap picker,
+  fastest pré-selec) OU CSV multi-volta (split por reset de distância). 10 testes no parser.
+- **UI/UX** (agente architect): `.streamlit/config.toml` dark motorsport (bg #11141a, accent
+  laranja #f28a1f), headers uniformizados, sidebar com branding SARU, `docs/UI_UX_AUDIT.md`
+  com backlog P1/P2/P3. Verificado rodando (`.venv/bin/streamlit run ...`, JSON fallback,
+  sim Interlagos OK, governador 200 km/h ativo). **Suíte: 143 verdes.**
+- **P1 backlog UI (não aplicado)**: (P1-01) results.py 624 linhas → `st.tabs`
+  [Overview/Dynamics/Driver/Sectors] ~2d; (P1-02) `theme.py` c/ paleta Plotly unificada ~4h
+  (hoje traces ainda usam cores default Plotly); (P1-03) fluxo guiado Parameters→Track→Run ~1d.
+- **Docker**: NÃO subir compose deste repo — conflita 5432 c/ saru-os-postgres (rodando).
+  App roda 100% JSON fallback local. Deploy real = VPS isolada (DISTRIBUTION_OPTIONS opção 1).
+- **Branch**: `feature/claude-product-upgrade` (6 commits, não mergeada em develop — aguarda OK).
 
 ---
 
