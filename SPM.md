@@ -1,7 +1,32 @@
 # SARU Project Memory — LapTimeSimulator_CopaTruck
 
-> Última atualização: 2026-07-03
+> Última atualização: 2026-07-05
 > LER ao iniciar. ATUALIZAR ao final de cada tarefa.
+
+---
+
+## 0. Sessão 2026-07-05 — branch `feature/claude-product-upgrade`
+
+- Working tree pré-sessão estava LIMPO vs HEAD (contaminação GT de 2026-07-02 já
+  descartada em algum momento; opção A da auditoria efetivada de facto). Asserts
+  Cascavel 76–82 s vigentes; h_cg 1.1 nos presets.
+- **Commits na branch**:
+  - `feat(params): parameterize regulation speed governor` — `speed_limit_kmh` em
+    `VehicleParams` (0.0 = fallback legado: Truck→200 km/h, resto ilimitado);
+    `_build_flat_params` respeita override. 6 testes novos.
+  - `feat(analysis): add sim-vs-reference telemetry overlay page` — `src/analysis/overlay.py`
+    (puro: resample grade comum 5 m, Δv, Δt cumulativo, RMSE) + página Streamlit
+    "Telemetry Overlay" (upload CSV `distance_m,v_kmh`, métricas, 3 gráficos, top-5
+    trechos divergentes). 5 testes novos.
+- **Suíte: 139 passam** (125 + 6 governor + 5 overlay + 3 pré-existentes de coleta).
+- **Validador de regulamento re-rodado**: 3/4 non-compliant (VW/Scania/Volvo: massa,
+  wheelbase 4.4–4.7 m, largura); `vw_31320_copa_truck_racing_copy_correto` **COMPLIANT**
+  → candidato a baseline "aproximação por regulamento". Corrigir os 3 muda lap ≥0.5 s →
+  precisa OK do Vitor (guardrail de calibração).
+- **Backlog produto (ordem proposta)**: (1) presets → valores de regulamento c/ OK Vitor;
+  (2) Pacejka MF simplificado como `TireModel` opcional (diferencial vs OptimumLap);
+  (3) deploy hosted + auth (DISTRIBUTION_OPTIONS opção 1; Streamlit + basic auth em VPS);
+  (4) conversor .xrk→CSV empacotado p/ overlay sem fricção; (5) otimização de linha = V2.
 
 ---
 
