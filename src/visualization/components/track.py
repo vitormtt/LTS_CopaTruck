@@ -16,11 +16,12 @@ CUSTOM_TRACKS_SUBDIR = "custom"
 
 
 def pista_page() -> None:
-    st.header("🗺️ Track Selection & Configuration")
+    st.header("Track")
+    st.caption("Choose a circuit and tune width / grip before running.")
     init_session_state()
 
     track_source = st.radio(
-        "Track Source:",
+        "Track source",
         ["Interlagos (TUM FTM)", "HDF5 Circuit Files"],
         horizontal=True,
     )
@@ -50,7 +51,7 @@ def pista_page() -> None:
             default_idx = pistas.index("cascavel.hdf5")
             
         sel = st.selectbox(
-            "Select HDF5 Circuit:",
+            "HDF5 circuit",
             pistas,
             index=default_idx
         )
@@ -58,35 +59,37 @@ def pista_page() -> None:
         circuit, meta, plot_data = load_hdf5(sel_path, os.path.getmtime(sel_path))
 
     st.markdown("---")
-    st.subheader("🔧 Edit Track Geometry & Friction")
+    st.subheader("Geometry & friction")
 
     col_edit1, col_edit2 = st.columns(2)
     with col_edit1:
         st.session_state.track_width_scale = st.slider(
-            "Track Width Scale (multiplier):",
-            0.5, 2.0, st.session_state.saved_track_width_scale, 0.05
+            "Track width scale (×)",
+            0.5, 2.0, st.session_state.saved_track_width_scale, 0.05,
+            help="Multiplier applied to the raw track width channel."
         )
     with col_edit2:
         st.session_state.track_grip_mult = st.slider(
-            "Track Grip Multiplier (surface friction scale):",
-            0.5, 1.5, st.session_state.saved_track_grip_mult, 0.05
+            "Grip multiplier (×)",
+            0.5, 1.5, st.session_state.saved_track_grip_mult, 0.05,
+            help="Scales the tyre friction coefficient at the solver boundary."
         )
 
     # Detect unsaved changes
     if (st.session_state.track_width_scale != st.session_state.saved_track_width_scale or
             st.session_state.track_grip_mult != st.session_state.saved_track_grip_mult):
         st.session_state.track_dirty = True
-        st.warning("⚠️ Alterações não salvas na pista! Clique em 'Salvar' para aplicar na simulação.")
-        
-        if st.button("💾 Salvar Alterações da Pista", type="primary"):
+        st.warning("Unsaved track changes — click *Save* to arm them for the simulation.")
+
+        if st.button("Save track changes", type="primary"):
             st.session_state.saved_track_width_scale = st.session_state.track_width_scale
             st.session_state.saved_track_grip_mult = st.session_state.track_grip_mult
             st.session_state.track_dirty = False
-            st.success("✓ Configuração de pista salva com sucesso!")
+            st.success("Track configuration saved.")
             st.rerun()
     else:
         st.session_state.track_dirty = False
-        st.info("ℹ️ Configuração da pista salva e ativa para simulação.")
+        st.caption("Track configuration is saved and armed for the next run.")
 
     # Apply saved modifications to the active circuit object
     w_scale = st.session_state.saved_track_width_scale
@@ -137,10 +140,10 @@ def pista_page() -> None:
 
     # Persist the modified circuit to disk (never overwrites the source)
     if w_scale != 1.0 or g_mult != 1.0:
-        if st.button("💾 Salvar Pista Modificada (HDF5)",
-                     help="Grava a pista com as modificações em "
-                          f"{DATA_PATH}/{CUSTOM_TRACKS_SUBDIR}/ — o arquivo "
-                          "original nunca é sobrescrito."):
+        if st.button("Export modified track (HDF5)",
+                     help=f"Writes the edited track to "
+                          f"{DATA_PATH}/{CUSTOM_TRACKS_SUBDIR}/. "
+                          "The source file is never overwritten."):
             custom_dir = os.path.join(DATA_PATH, CUSTOM_TRACKS_SUBDIR)
             os.makedirs(custom_dir, exist_ok=True)
             safe_name = str(meta['name']).replace(' ', '_').replace('/', '-')[:40]
@@ -148,8 +151,8 @@ def pista_page() -> None:
             CircuitHDF5Writer(out_path).write_circuit(
                 circuit_c, extra_attrs={'grip_mult': float(g_mult)}
             )
-            st.success(f"✓ Pista salva em `{out_path}` — disponível no "
-                       "seletor 'HDF5 Circuit Files'.")
+            st.success(f"Track exported to `{out_path}` — available in the "
+                       "*HDF5 Circuit Files* selector.")
 
     # Plot track geometry
     fig = go.Figure()
@@ -178,5 +181,8 @@ def pista_page() -> None:
     )
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
     st.plotly_chart(fig, width="stretch")
-    
-    st.success(f"✓ Circuit loaded: **{meta['name']}** | Length: **{meta['length']:.0f} m** | Grip factor: **{g_mult:.2f}x**")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Circuit", meta['name'])
+    c2.metric("Length", f"{meta['length']:.0f} m")
+    c3.metric("Grip factor", f"{g_mult:.2f} ×")

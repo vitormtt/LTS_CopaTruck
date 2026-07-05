@@ -77,15 +77,16 @@ def _run_differential_evolution(base, circuit, pressure_bounds_bar,
 
 
 def optimization_page() -> None:
-    st.header("🔧 Setup Optimization")
+    st.header("Setup optimization")
+    st.caption("Search the ARB / wing / pressure / bias space for the fastest setup.")
     init_session_state()
 
     if st.session_state.circuit is None:
-        st.warning("⚠️ Select a track in the 'Track' tab first.")
+        st.warning("Select a track on the Track page first.")
         return
 
     if st.session_state.vehicle_params is None or not st.session_state.params_saved:
-        st.warning("⚠️ Configure and **save** a vehicle in the 'Parameters' tab first.")
+        st.warning("Configure and save a vehicle on the Parameters page first.")
         return
 
     st.caption(
@@ -116,7 +117,7 @@ def optimization_page() -> None:
                 "Population Size", 6, 40, 12, step=2, key="opt_de_pop"
             )
 
-        if st.button("🧬 Run Differential Evolution", width="stretch",
+        if st.button("Run differential evolution", width="stretch",
                      type="primary"):
             base = get_vehicle_by_id(st.session_state.vehicle_id)
             circuit = st.session_state.circuit
@@ -132,9 +133,9 @@ def optimization_page() -> None:
             arb_f, arb_r, wing = (int(round(v)) for v in result.x[:3])
             best_pressure, best_bias = float(result.x[3]), float(result.x[4])
             st.success(
-                f"✅ DE complete in {elapsed:.1f}s ({result.nfev} laps) — "
-                f"Optimum: **ARB {arb_f}/{arb_r} Wing {wing} | "
-                f"{bar_to_psi(best_pressure):.1f} psi | bias {best_bias:+.1f}** "
+                f"DE complete in {elapsed:.1f} s ({result.nfev} laps). "
+                f"Optimum: **ARB {arb_f}/{arb_r}, wing {wing}, "
+                f"{bar_to_psi(best_pressure):.1f} psi, bias {best_bias:+.1f}** "
                 f"→ **{fmt_laptime(float(result.fun))}**"
             )
 
@@ -179,7 +180,7 @@ def optimization_page() -> None:
         f"(ARB Front: {len(arb_f_vals)} × ARB Rear: {len(arb_r_vals)} × Wing: {len(wing_vals)})"
     )
 
-    if st.button("🚀 Run Setup Optimization Grid-Search", width="stretch", type="primary"):
+    if st.button("Run grid search", width="stretch", type="primary"):
         base = get_vehicle_by_id(st.session_state.vehicle_id)
         circuit = st.session_state.circuit
         results_opt = []
@@ -240,26 +241,26 @@ def optimization_page() -> None:
         valid_df = df_opt[df_opt["lap_time"] < float("inf")]
         
         if valid_df.empty:
-            st.error("❌ All simulated setup configurations failed to solve.")
+            st.error("All setup configurations failed to solve.")
             return
 
         best = valid_df.loc[valid_df["lap_time"].idxmin()]
 
         st.success(
-            f"✅ Grid search complete in {elapsed:.1f}s — "
-            f"Optimum: **ARB {int(best.arb_f)}/{int(best.arb_r)} Wing {int(best.wing)}** "
+            f"Grid search complete in {elapsed:.1f} s. "
+            f"Optimum: **ARB {int(best.arb_f)}/{int(best.arb_r)}, wing {int(best.wing)}** "
             f"→ **{fmt_laptime(best.lap_time)}**"
         )
 
         # Top 10 setups
-        st.subheader("🏆 Top 10 Fast Setups")
+        st.subheader("Top 10 fastest setups")
         top10 = valid_df.nsmallest(10, "lap_time").copy()
         top10["Lap Time"] = top10["lap_time"].apply(fmt_laptime)
         top10.columns = [c.replace("_", " ").title() for c in top10.columns]
         st.dataframe(top10, width="stretch")
 
         # Heatmaps — one per wing position
-        st.subheader("🗺️ Lap-Time Sensitivity (ARB Front vs ARB Rear)")
+        st.subheader("Lap-time sensitivity — ARB front vs ARB rear")
         for w in wing_vals:
             sub = valid_df[valid_df["wing"] == w]
             if sub.empty:

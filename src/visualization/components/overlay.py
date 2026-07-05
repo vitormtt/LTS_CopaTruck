@@ -110,10 +110,11 @@ def _pick_reference_lap(uploaded) -> pd.DataFrame | None:
 
 def overlay_page() -> None:
     """Render the sim-vs-reference overlay page."""
-    st.header("📡 Telemetry Overlay — Sim vs Real")
+    st.header("Telemetry overlay")
+    st.caption("Compare the simulated lap against a real reference (AiM .xrk or CSV).")
 
     if not st.session_state.get("resultados_prontos", False):
-        st.warning("⚠️ Run a simulation first (Simulation tab).")
+        st.warning("Run a simulation on the Simulation page first.")
         return
 
     res = st.session_state.resultados

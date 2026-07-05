@@ -1,0 +1,29 @@
+# LTS Copa Truck — Streamlit theme
+# SARU Dynamics · dark race-engineering palette
+#
+# Palette (HSL → hex):
+#   background primary   hsl(220 15% 8%)  #11141a
+#   background secondary hsl(220 12% 12%) #1a1d24
+#   text primary         hsl(220 15% 92%) #e6e8ee
+#   text secondary       hsl(220 10% 65%) #9ba1ad
+#   accent (primary)     hsl( 28 90% 55%) #f28a1f  — motorsport orange
+#
+# Rationale: orange is category-coherent with Copa Truck liveries and
+# semantically neutral against the RdYlGn_r sensitivity heatmaps
+# (green = fast, red = slow). Contrast on the deep-neutral background
+# reaches 7.2:1 — comfortably above WCAG AA large-text (3:1).
+
+[theme]
+base = "dark"
+primaryColor = "#f28a1f"
+backgroundColor = "#11141a"
+secondaryBackgroundColor = "#1a1d24"
+textColor = "#e6e8ee"
+font = "sans-serif"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = true
+toolbarMode = "minimal"

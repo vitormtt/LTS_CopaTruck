@@ -203,7 +203,7 @@ def _render_simulation_history() -> None:
     from src.database import db_manager
     from src.vehicle.fleet import list_vehicles
 
-    with st.expander("📚 Simulation History (database)"):
+    with st.expander("Simulation history"):
         col_v, col_t, col_r = st.columns([2, 2, 1])
         fleet_names = list_vehicles()
         with col_v:
@@ -246,15 +246,16 @@ def _render_simulation_history() -> None:
 
 
 def resultados_page() -> None:
-    st.header("🏁 Results & Telemetry Dashboard")
+    st.header("Results")
+    st.caption("Telemetry dashboard, KPIs and exports for the last simulated lap.")
     _render_simulation_history()
     init_session_state()
 
     # --- Sweep Results (PCP) ---
     if st.session_state.get("sweep_results_df") is not None and not st.session_state.sweep_results_df.empty:
         df_sweep = st.session_state.sweep_results_df
-        st.subheader("📊 Setup Sweep Sensitivity Analysis (PCP)")
-        st.markdown("Use this Parallel Coordinates Plot to find the optimal setup. **Drag the axes to filter** and analyze trade-offs.")
+        st.subheader("Parameter sweep — sensitivity analysis")
+        st.caption("Drag the axes to filter and inspect setup trade-offs.")
         
         fig_pcp = go.Figure(data=
             go.Parcoords(
@@ -277,7 +278,7 @@ def resultados_page() -> None:
         st.markdown("---")
 
     if not st.session_state.get("resultados_prontos", False):
-        st.warning("⚠️ Run a simulation in the 'Simulation' tab first.")
+        st.warning("Run a simulation on the Simulation page first.")
         return
 
     res = st.session_state.resultados
@@ -303,7 +304,7 @@ def resultados_page() -> None:
     p_pneu_fim = float(p_pneu_arr[-1])
 
     # --- KPIs Panel ---
-    st.subheader("🏁 Performance KPIs")
+    st.subheader("Performance KPIs")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Lap Time", fmt_laptime(res['lap_time']))
     c2.metric("Avg Speed", f"{float(np.mean(v_kmh)):.1f} km/h")
@@ -334,14 +335,14 @@ def resultados_page() -> None:
     st.markdown("---")
 
     # --- Exporters Block ---
-    st.subheader("📥 Export Deliverables")
+    st.subheader("Export deliverables")
     col_csv, col_pdf, col_html = st.columns(3)
-    
+
     with col_csv:
         if csv_file and os.path.exists(csv_file):
             with open(csv_file, "rb") as f:
                 st.download_button(
-                    label="📥 Download Telemetry CSV",
+                    label="Telemetry CSV",
                     data=f,
                     file_name=f"Telemetry_{vp.name.replace(' ', '_')}_{datetime.now().strftime('%H%M%S')}.csv",
                     mime="text/csv",
@@ -357,7 +358,7 @@ def resultados_page() -> None:
             generate_pdf_report(res, circuit, st.session_state.circuit_meta, vp.name, pdf_path)
             with open(pdf_path, "rb") as f:
                 st.download_button(
-                    label="📄 Download PDF Executive Report",
+                    label="PDF engineering report",
                     data=f,
                     file_name=f"Report_{vp.name.replace(' ', '_')}_{datetime.now().strftime('%H%M%S')}.pdf",
                     mime="application/pdf",
@@ -370,12 +371,12 @@ def resultados_page() -> None:
             
     with col_html:
         # Placeholder / button for HTML dashboard compile
-        html_export_triggered = st.button("📄 Export Interactive HTML Report", width="stretch")
+        html_export_triggered = st.button("Interactive HTML report", width="stretch")
 
     st.markdown("---")
     
     # --- Interactive Plots Section ---
-    st.subheader("🗺️ Speed Map")
+    st.subheader("Speed map")
 
     x_c = circuit.centerline_x
     y_c = circuit.centerline_y
@@ -402,7 +403,7 @@ def resultados_page() -> None:
     st.plotly_chart(fig_map, width="stretch")
 
     st.markdown("---")
-    st.subheader("📈 Dynamics Channels")
+    st.subheader("Dynamics channels")
 
     col_g1, col_g2 = st.columns(2)
     with col_g1:
@@ -475,8 +476,8 @@ def resultados_page() -> None:
         st.plotly_chart(fig_ggv, width="stretch")
 
     # --- Brake Trace Analysis (Trail-Braking) ---
-    st.subheader("🛑 Brake Trace Analysis (Trail-Braking)")
-    st.markdown("Detailed view of the G-Sum transition from pure braking to pure cornering.")
+    st.subheader("Brake trace analysis")
+    st.caption("G-sum transition from pure braking to pure cornering (trail-braking).")
     
     col_bt1, col_bt2 = st.columns(2)
     with col_bt1:
@@ -540,7 +541,7 @@ def resultados_page() -> None:
 
     # --- Driver Inputs ---
     st.markdown("---")
-    st.subheader("🎮 Driver Inputs")
+    st.subheader("Driver inputs")
 
     col_d1, col_d2 = st.columns(2)
     with col_d1:
@@ -573,9 +574,9 @@ def resultados_page() -> None:
 
     # Sector Timing Tab
     st.markdown("---")
-    st.subheader("🏁 Sector Timing Analysis")
+    st.subheader("Sector timing")
     track_len = float(dist[-1])
-    n_sectors = st.slider("Number of sectors:", 3, 12, 3, key="n_sectors")
+    n_sectors = st.slider("Number of sectors", 3, 12, 3, key="n_sectors")
     sector_boundaries = np.linspace(0, track_len, n_sectors + 1)
     sector_rows = []
     for s_idx in range(n_sectors):
@@ -616,7 +617,7 @@ def resultados_page() -> None:
         html_parts.append("</body></html>")
         
         st.download_button(
-            label="📥 Download HTML Report File",
+            label="Download HTML report",
             data="\n".join(html_parts),
             file_name=f"Interactive_Report_{datetime.now().strftime('%H%M%S')}.html",
             mime="text/html",
