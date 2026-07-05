@@ -45,7 +45,34 @@
   (hoje traces ainda usam cores default Plotly); (P1-03) fluxo guiado Parameters→Track→Run ~1d.
 - **Docker**: NÃO subir compose deste repo — conflita 5432 c/ saru-os-postgres (rodando).
   App roda 100% JSON fallback local. Deploy real = VPS isolada (DISTRIBUTION_OPTIONS opção 1).
-- **Branch**: `feature/claude-product-upgrade` (6 commits, não mergeada em develop — aguarda OK).
+- **Branch**: `feature/claude-product-upgrade` (não mergeada em develop — aguarda OK).
+
+### Sessão 2026-07-05 (parte 3) — auditoria params + P1-02 + freio
+- **P1-02 (paleta Plotly)** ✅ `src/visualization/theme.py`: template dark `lts_dark`
+  (default global) + tokens semânticos (ACCENT #f28a1f/REFERENCE/POSITIVE/NEGATIVE/LATERAL...).
+  ~25 cores hardcoded trocadas em results/overlay/track/optimization/torque_curve. Plots agora
+  fundo transparente dark, sem cara de "Plotly default". 152 testes verdes.
+- **AUDITORIA de linkage frontend↔solver (resposta ao Vitor)**:
+  - **Nenhum param exposto no frontend é órfão** — todos chegam ao solver. Renames OK:
+    `wheel_radius`→`r_wheel`, `max_torque`→`T_max` (fallback analítico; torque_curve manda
+    quando presente, `_engine_torque` L578).
+  - **Params MORTOS** (serializam em to_solver_dict mas solver ignora — sobras do
+    ENDURANCE_THERMAL removido): `disc_mass_kg`, `disc_specific_heat`, `disc_convection`,
+    `disc_area_m2`, `disc_initial_temp_c`, `disc_thermal_efficiency`, `fade_onset_temp_c`,
+    `fade_full_temp_c`, `fade_min_factor`, `downshift_rpm`, `upshift_rpm`. NÃO expostos no
+    frontend. **Pendência**: podar de `BrakeParams`/`to_solver_dict`/`from_solver_dict`
+    (cuidado: `test_vehicle_mapping` roundtrip). Baixo risco, cosmético.
+  - `k_roll` total: redundante (front+rear é que o solver usa; total é dropado).
+- **Freio a partir de hardware (ponto 2)**: `src/vehicle/brake_hardware.py` — cadeia de
+  Limpert (`clamp = P×A×n; torque = 2·μ_pad·clamp·R_disc; F = torque/R_wheel`), pura, 7 testes.
+  **NÃO wirado no solver** — precisa números reais (prompt em `docs/research/PROMPT_brake_hardware.md`,
+  Vitor roda) + aprovação (muda lap ≥0.5 s, guardrail). Hoje solver segue usando `max_brake_force`
+  slider + cap `max_decel`, ambos batendo no limite físico de grip via `_bias_limited_decel`.
+- **Docker (esclarecimento)**: NÃO estão misturados. São 2 projetos docker independentes —
+  `copa_truck_db`/`copa_truck_app` (este repo) vs `saru-os-*` (platform/saru-os). Única
+  sobreposição: ambos default postgres na porta host 5432. saru-os roda agora e ocupa 5432;
+  subir o compose deste repo sem `.env DB_PORT=5433` colide. Não é confusão de projeto,
+  é colisão de porta default. App roda 100% JSON fallback local (não precisa do compose p/ demo).
 
 ---
 
