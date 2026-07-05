@@ -85,29 +85,33 @@ def _input_value(at: AppTest, key: str):
 
 def test_switching_model_reseeds_widgets():
     at = _page_test()
-    # First model in the fleet JSON is the VW 31320 (4500 kg, wb 4.40 m)
+    # Fleet ships the regulation-baseline VW 31320 (4950 kg, wb 3.65 m)
     assert at.selectbox[0].value == "volkswagen_31320"
-    assert _input_value(at, "vp_mass") == pytest.approx(4500.0)
-    assert _input_value(at, "vp_wheelbase") == pytest.approx(4.40)
+    assert _input_value(at, "vp_mass") == pytest.approx(4950.0)
+    assert _input_value(at, "vp_wheelbase") == pytest.approx(3.65)
 
-    at.selectbox[0].select("scania_r480").run(timeout=30)
+    # Save a modified copy, then switch back: widgets must reseed to the
+    # base preset numbers, not keep the stale copy values.
+    at.number_input(key="vp_mass").set_value(5100.0)
+    at.text_input(key="new_model_name").set_value("VW 31320 (Heavy Copy)")
+    at.text_input(key="new_model_id").set_value("vw_31320_heavy_copy")
+    at.run(timeout=30)
+    at.button(key="btn_save_new_model").click().run(timeout=30)
     assert not at.exception
+    assert at.selectbox[0].value == "vw_31320_heavy_copy"
+    assert _input_value(at, "vp_mass") == pytest.approx(5100.0)
 
-    # Widgets must show the Scania numbers, not the stale VW ones
-    assert _input_value(at, "vp_mass") == pytest.approx(4600.0)
-    assert _input_value(at, "vp_wheelbase") == pytest.approx(4.70)
+    at.selectbox[0].select("volkswagen_31320").run(timeout=30)
+    assert not at.exception
+    assert _input_value(at, "vp_mass") == pytest.approx(4950.0)
 
 
 def test_save_as_new_model_persists_copy_and_selects_it():
     at = _page_test()
     assert at.selectbox[0].value == "volkswagen_31320"
 
-    # Make the VW copy regulation-compliant via the page widgets
-    at.number_input(key="vp_mass").set_value(4950.0)
-    at.number_input(key="vp_wheelbase").set_value(3.60)
-    at.slider(key="vp_wd_front").set_value(54.0)  # front axle >= 2520 kg
-    at.number_input(key="vp_tw_front").set_value(2.14)
-    at.number_input(key="vp_tw_rear").set_value(2.14)
+    # Tweak the (already compliant) base preset via the page widgets
+    at.number_input(key="vp_mass").set_value(5000.0)
     at.text_input(key="new_model_name").set_value("VW 31320 (UI Test Copy)")
     at.text_input(key="new_model_id").set_value("vw_31320_ui_test_copy")
     at.run(timeout=30)
@@ -119,22 +123,17 @@ def test_save_as_new_model_persists_copy_and_selects_it():
     # New model persisted in storage…
     stored = json.loads(db_manager.VEHICLES_JSON_PATH.read_text(encoding="utf-8"))
     assert "vw_31320_ui_test_copy" in stored
-    assert stored["vw_31320_ui_test_copy"]["m"] == pytest.approx(4950.0)
+    assert stored["vw_31320_ui_test_copy"]["m"] == pytest.approx(5000.0)
     # …base preset untouched…
-    assert stored["volkswagen_31320"]["m"] == pytest.approx(4500.0)
+    assert stored["volkswagen_31320"]["m"] == pytest.approx(4950.0)
     # …and now selected in the UI with its own numbers loaded.
     assert at.selectbox[0].value == "vw_31320_ui_test_copy"
-    assert _input_value(at, "vp_mass") == pytest.approx(4950.0)
+    assert _input_value(at, "vp_mass") == pytest.approx(5000.0)
 
 
 def test_save_as_new_model_rejects_duplicate_id():
     at = _page_test()
-    at.number_input(key="vp_mass").set_value(4950.0)
-    at.number_input(key="vp_wheelbase").set_value(3.60)
-    at.slider(key="vp_wd_front").set_value(54.0)
-    at.number_input(key="vp_tw_front").set_value(2.14)
-    at.number_input(key="vp_tw_rear").set_value(2.14)
-    at.text_input(key="new_model_id").set_value("scania_r480")  # already exists
+    at.text_input(key="new_model_id").set_value("volkswagen_31320")  # already exists
     at.run(timeout=30)
 
     at.button(key="btn_save_new_model").click().run(timeout=30)

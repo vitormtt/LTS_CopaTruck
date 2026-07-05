@@ -25,11 +25,12 @@ def _make_compliant_vw_copy() -> VehicleParams:
     return vp
 
 
-def test_base_vw_31320_is_non_compliant():
+def test_base_vw_31320_is_compliant():
+    # Since 2026-07-05 the shipped preset IS the regulation baseline
+    # (m=4950 kg, wb 3.65 m, outer width within CBA limit).
     vp = get_vehicle_by_id("volkswagen_31320")
     result = validate_regulation_compliance(vp)
-    assert not result["compliant"]
-    assert len(result["errors"]) >= 4  # mass, front axle, wheelbase, widths
+    assert result["compliant"], f"unexpected errors: {result['errors']}"
 
 
 def test_compliant_copy_passes_validator():

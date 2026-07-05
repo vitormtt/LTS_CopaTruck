@@ -52,19 +52,11 @@ def main() -> None:
             "mode": "standing_start"
         },
         {
-            "id": "scania_r480_cascavel_qualifying",
-            "vehicle_id": "scania_r480",
-            "track_id": "cascavel",
-            "mode": "qualifying"
-        },
-        {
-            "id": "volvo_fh16_interlagos_qualifying",
-            "vehicle_id": "volvo_fh16",
+            "id": "vw_31320_interlagos_qualifying",
+            "vehicle_id": "volkswagen_31320",
             "track_id": "interlagos",
             "mode": "qualifying"
         },
-
-
     ]
     
     baselines = {}

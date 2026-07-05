@@ -109,7 +109,9 @@ def test_cornering_stiffness_live_in_channels(ref) -> None:
     def softer(v):
         v.tire.cornering_stiffness_front = 70000.0
     r = _run(softer)
-    assert np.max(r.front_slip_angle_deg) > np.max(ref.front_slip_angle_deg)
+    # Compare mean (not max): with the regulation-baseline preset the peak
+    # slip saturates at the solver cap on both runs, masking the change.
+    assert np.mean(r.front_slip_angle_deg) > np.mean(ref.front_slip_angle_deg)
     assert not np.allclose(r.steering_deg, ref.steering_deg)
     assert r.understeer_margin_deg > ref.understeer_margin_deg
 
