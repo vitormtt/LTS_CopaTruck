@@ -16,6 +16,7 @@ from src.analysis.overlay import (
     OverlayResult,
     compute_overlay,
     load_reference_csv,
+    split_laps,
 )
 
 
@@ -62,6 +63,61 @@ def test_slower_sim_positive_time_delta():
     # sim loses time: cumulative delta (sim - ref) ends positive
     assert res.delta_time_s[-1] > 0.5
     assert res.sim_time_s > res.ref_time_s
+
+
+def test_load_reference_csv_accepts_distance_alias():
+    # .xrk converter output uses 'distance' instead of 'distance_m'
+    buf = io.StringIO("distance,v_kmh\n0,100\n100,150\n200,120\n")
+    df = load_reference_csv(buf)
+    assert list(df.columns) == ["distance_m", "v_kmh"]
+    assert len(df) == 3
+
+
+def test_load_reference_csv_accepts_speed_alias():
+    buf = io.StringIO("distance_m,speed_kmh\n0,100\n100,150\n")
+    df = load_reference_csv(buf)
+    assert df["v_kmh"].iloc[1] == pytest.approx(150.0)
+
+
+def test_split_laps_single_lap_passthrough():
+    df = pd.DataFrame({
+        "distance_m": np.linspace(0, 3000, 31),
+        "v_kmh": np.full(31, 120.0),
+    })
+    laps = split_laps(df)
+    assert len(laps) == 1
+    assert len(laps[0]) == 31
+
+
+def test_split_laps_detects_distance_resets():
+    # 3 laps concatenated: distance resets to ~0 at each lap start
+    one = np.linspace(0, 3000, 31)
+    df = pd.DataFrame({
+        "distance_m": np.concatenate([one, one, one]),
+        "v_kmh": np.concatenate([
+            np.full(31, 120.0),   # lap 1 slow
+            np.full(31, 150.0),   # lap 2 fast
+            np.full(31, 130.0),   # lap 3 mid
+        ]),
+    })
+    laps = split_laps(df)
+    assert len(laps) == 3
+    assert all(len(lap) == 31 for lap in laps)
+    # each split lap starts near zero distance
+    assert all(lap["distance_m"].iloc[0] == pytest.approx(0.0) for lap in laps)
+
+
+def test_split_laps_ignores_tiny_fragments():
+    # A 2-sample fragment (out-lap tail) should be dropped
+    full = np.linspace(0, 3000, 31)
+    frag = np.array([0.0, 90.0])
+    df = pd.DataFrame({
+        "distance_m": np.concatenate([frag, full]),
+        "v_kmh": np.full(33, 120.0),
+    })
+    laps = split_laps(df)
+    assert len(laps) == 1
+    assert len(laps[0]) == 31
 
 
 def test_non_overlapping_traces_raise():

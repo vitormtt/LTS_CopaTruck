@@ -22,8 +22,16 @@ import numpy as np
 import pandas as pd
 
 REQUIRED_COLUMNS = ("distance_m", "v_kmh")
+# Accepted aliases per canonical column (.xrk converter uses 'distance';
+# some exports use 'speed_kmh').
+_COLUMN_ALIASES = {
+    "distance_m": ("distance_m", "distance", "dist_m"),
+    "v_kmh": ("v_kmh", "speed_kmh", "gps_speed_kmh"),
+}
 _MIN_SPEED_MS = 1.0  # floor to avoid div-by-zero when integrating ds/v
 _GRID_STEP_M = 5.0   # common-distance resample step
+_MIN_LAP_SAMPLES = 10       # fragments below this are in/out-lap tails
+_RESET_DROP_FRACTION = 0.5  # distance drop > 50% of running max = new lap
 
 
 @dataclass(frozen=True)
@@ -40,29 +48,80 @@ class OverlayResult:
 
 
 def load_reference_csv(source: Union[str, IO]) -> pd.DataFrame:
-    """Load a reference lap CSV requiring ``distance_m`` and ``v_kmh``.
+    """Load a reference lap CSV with distance and speed channels.
+
+    Accepts canonical columns (``distance_m``, ``v_kmh``) or known aliases
+    (``distance`` from the .xrk converter, ``speed_kmh``). Multi-lap files
+    are NOT split here — pass the result through :func:`split_laps`.
 
     Args:
         source: File path or file-like object (e.g. Streamlit upload).
 
     Returns:
-        DataFrame with the two required columns, NaN-free, sorted by
-        distance.
+        DataFrame with canonical columns, NaN-free. Sample order is
+        preserved (do not sort: distance resets mark lap boundaries).
 
     Raises:
-        ValueError: If required columns are missing or no rows survive.
+        ValueError: If required columns (or aliases) are missing or no
+            rows survive.
     """
     df = pd.read_csv(source)
-    missing = set(REQUIRED_COLUMNS) - set(df.columns)
-    if missing:
-        raise ValueError(
-            f"Reference CSV missing columns {sorted(missing)}; expected "
-            "'distance_m' and 'v_kmh'."
-        )
-    df = df[list(REQUIRED_COLUMNS)].dropna().sort_values("distance_m")
+    resolved = {}
+    for canonical, aliases in _COLUMN_ALIASES.items():
+        found = next((a for a in aliases if a in df.columns), None)
+        if found is None:
+            raise ValueError(
+                f"Reference CSV missing '{canonical}' (accepted aliases: "
+                f"{list(aliases)}). Columns found: {list(df.columns)}."
+            )
+        resolved[found] = canonical
+    df = df[list(resolved)].rename(columns=resolved)
+    df = df[list(REQUIRED_COLUMNS)].dropna()
     if df.empty:
         raise ValueError("Reference CSV has no valid rows.")
     return df.reset_index(drop=True)
+
+
+def split_laps(df: pd.DataFrame) -> list[pd.DataFrame]:
+    """Split a multi-lap reference trace at distance resets.
+
+    A new lap starts where the distance channel drops by more than
+    ``_RESET_DROP_FRACTION`` of the running maximum (lap beacon resets
+    distance to ~0). Fragments shorter than ``_MIN_LAP_SAMPLES`` samples
+    (in/out-lap tails) are discarded — unless nothing else survives.
+
+    Args:
+        df: DataFrame from :func:`load_reference_csv`.
+
+    Returns:
+        List of single-lap DataFrames, each rebased to start at 0 m,
+        in file order.
+    """
+    d = df["distance_m"].to_numpy(dtype=float)
+    running_max = np.maximum.accumulate(d)
+    drops = np.where(
+        d[1:] < d[:-1] - _RESET_DROP_FRACTION * running_max[:-1]
+    )[0] + 1
+    bounds = [0, *drops.tolist(), len(d)]
+
+    laps: list[pd.DataFrame] = []
+    for lo, hi in zip(bounds[:-1], bounds[1:]):
+        lap = df.iloc[lo:hi].reset_index(drop=True)
+        lap = lap.sort_values("distance_m").reset_index(drop=True)
+        lap["distance_m"] = lap["distance_m"] - lap["distance_m"].iloc[0]
+        laps.append(lap)
+
+    full = [lap for lap in laps if len(lap) >= _MIN_LAP_SAMPLES]
+    return full if full else laps
+
+
+def estimate_lap_time_s(lap: pd.DataFrame) -> float:
+    """Estimate lap time [s] from a distance/speed trace via ds/v."""
+    t = _segment_time(
+        lap["distance_m"].to_numpy(dtype=float),
+        lap["v_kmh"].to_numpy(dtype=float),
+    )
+    return float(t[-1])
 
 
 def _segment_time(grid: np.ndarray, v_kmh: np.ndarray) -> np.ndarray:

@@ -1,21 +1,111 @@
 """
 Telemetry Overlay page — simulated lap vs real reference lap.
 
-Upload a reference CSV (``distance_m``, ``v_kmh`` — output of the .xrk
-converter or any telemetry export) and compare against the last
-simulation: speed overlay, Δv and cumulative Δt by distance.
+Accepts a reference lap as:
+- AiM ``.xrk`` session (parsed via libxrk; lap picker, fastest pre-selected);
+- CSV with distance/speed channels (canonical ``distance_m``/``v_kmh`` or
+  aliases; multi-lap CSVs are split at distance resets with a lap picker).
 
 All math lives in src.analysis.overlay (pure, tested); this module is
 presentation only.
 """
 from __future__ import annotations
 
+import logging
+import tempfile
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.analysis.overlay import compute_overlay, load_reference_csv
+from src.analysis.overlay import (
+    compute_overlay,
+    estimate_lap_time_s,
+    load_reference_csv,
+    split_laps,
+)
 from src.visualization.components.helpers import fmt_laptime
+
+logger = logging.getLogger(__name__)
+
+
+@st.cache_data(show_spinner="Parsing .xrk session...")
+def _xrk_lap_reference(file_bytes: bytes, lap_num: int | None) -> tuple[pd.DataFrame, dict]:
+    """Extract one lap of an .xrk session as a reference DataFrame.
+
+    Args:
+        file_bytes: Raw .xrk upload content.
+        lap_num: Lap to extract; None = fastest valid lap.
+
+    Returns:
+        (reference DataFrame with distance_m/v_kmh, conversion metadata).
+    """
+    from src.tracks.telemetry_converter import convert_xrk_to_csv
+
+    with tempfile.TemporaryDirectory() as tmp:
+        xrk_path = Path(tmp) / "session.xrk"
+        xrk_path.write_bytes(file_bytes)
+        csv_path = Path(tmp) / "lap.csv"
+        meta = convert_xrk_to_csv(str(xrk_path), str(csv_path), lap_num)
+        ref = load_reference_csv(str(csv_path))
+    return ref, meta
+
+
+@st.cache_data(show_spinner="Reading lap list...")
+def _xrk_laps(file_bytes: bytes) -> pd.DataFrame:
+    """List laps (num, duration_s) of an .xrk session upload."""
+    from src.tracks.telemetry_converter import list_laps
+
+    with tempfile.TemporaryDirectory() as tmp:
+        xrk_path = Path(tmp) / "session.xrk"
+        xrk_path.write_bytes(file_bytes)
+        return list_laps(str(xrk_path))
+
+
+def _pick_reference_lap(uploaded) -> pd.DataFrame | None:
+    """Resolve the uploaded file (.xrk or CSV) into a single reference lap."""
+    if uploaded.name.lower().endswith(".xrk"):
+        file_bytes = uploaded.getvalue()
+        laps = _xrk_laps(file_bytes)
+        if laps.empty:
+            st.error("No laps found in this .xrk session.")
+            return None
+        options = {
+            f"Lap {int(r.num)} — {fmt_laptime(float(r.duration_s))}": int(r.num)
+            for r in laps.itertuples()
+        }
+        fastest_valid = laps[laps["duration_s"] > 40.0]
+        default_num = int(
+            (fastest_valid if not fastest_valid.empty else laps)
+            .sort_values("duration_s")["num"].iloc[0]
+        )
+        default_idx = list(options.values()).index(default_num)
+        chosen = st.selectbox("Reference lap (.xrk)", list(options),
+                              index=default_idx, key="overlay_xrk_lap")
+        ref, meta = _xrk_lap_reference(file_bytes, options[chosen])
+        st.caption(
+            f"Session: {meta.get('driver', '?')} · {meta.get('vehicle', '?')} · "
+            f"{meta.get('venue', '?')} · {meta.get('date', '?')}"
+        )
+        return ref
+
+    # CSV path: may contain several laps concatenated (distance resets)
+    ref_all = load_reference_csv(uploaded)
+    laps = split_laps(ref_all)
+    if len(laps) == 1:
+        return laps[0]
+    options = {
+        f"Lap {i + 1} — ~{fmt_laptime(estimate_lap_time_s(lap))} "
+        f"({lap['distance_m'].iloc[-1]:.0f} m)": i
+        for i, lap in enumerate(laps)
+    }
+    default_idx = int(np.argmin([estimate_lap_time_s(lap) for lap in laps]))
+    chosen = st.selectbox(f"CSV contains {len(laps)} laps — pick one",
+                          list(options), index=default_idx,
+                          key="overlay_csv_lap")
+    return laps[options[chosen]]
 
 
 def overlay_page() -> None:
@@ -29,20 +119,27 @@ def overlay_page() -> None:
     res = st.session_state.resultados
 
     st.markdown(
-        "Upload a reference lap CSV with columns `distance_m` and `v_kmh` "
-        "(.xrk laps: convert with the telemetry converter first)."
+        "Upload a reference lap: AiM **.xrk** session (lap picker built-in) "
+        "or **CSV** with `distance_m`/`v_kmh` (aliases `distance`, "
+        "`speed_kmh` accepted; multi-lap CSVs are split automatically)."
     )
-    uploaded = st.file_uploader("Reference lap CSV", type=["csv"],
-                                key="overlay_ref_csv")
+    uploaded = st.file_uploader("Reference lap (.xrk or .csv)",
+                                type=["csv", "xrk"], key="overlay_ref_csv")
     if uploaded is None:
         st.info("Waiting for a reference lap file.")
         return
 
     try:
-        ref = load_reference_csv(uploaded)
+        ref = _pick_reference_lap(uploaded)
+        if ref is None:
+            return
         overlay = compute_overlay(res["distance"], res["v_profile"] * 3.6, ref)
     except ValueError as exc:
         st.error(f"Reference file rejected: {exc}")
+        return
+    except (KeyError, OSError) as exc:
+        logger.error("Failed to parse reference telemetry: %s", exc)
+        st.error(f"Could not parse reference telemetry: {exc}")
         return
 
     # --- Scalar metrics ---

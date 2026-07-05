@@ -80,6 +80,23 @@ def get_fastest_lap_index(laps_table: pa.Table) -> int:
     return int(valid_laps["duration_s"].idxmin())
 
 
+def list_laps(xrk_path: str) -> "pd.DataFrame":
+    """List laps of an .xrk session with number and duration.
+
+    Args:
+        xrk_path: Path to the AiM .xrk file.
+
+    Returns:
+        DataFrame with columns ``num`` and ``duration_s``, in session order.
+    """
+    if not os.path.exists(xrk_path):
+        raise FileNotFoundError(f"File not found: {xrk_path}")
+    log = aim_xrk(xrk_path)
+    df = log.laps.to_pandas()
+    df["duration_s"] = (df["end_time"] - df["start_time"]) / 1000.0
+    return df[["num", "duration_s"]].reset_index(drop=True)
+
+
 def convert_xrk_to_csv(xrk_path: str, csv_path: str, lap_num: Optional[int] = None) -> Dict[str, Any]:
     """
     Parses an AiM .xrk file, aligns the timing, extracts the specified (or fastest) lap,
