@@ -22,6 +22,7 @@ from src.vehicle.fleet import get_vehicle_by_id
 from src.vehicle.setup import VehicleSetup, apply_setup
 from src.vehicle.units import bar_to_psi, psi_to_bar
 from .helpers import cached_solver, fmt_laptime, init_session_state
+from src.visualization.theme import ACCENT
 
 
 def _evaluate_setup(base, circuit, arb_f: int, arb_r: int, wing: int,
@@ -142,7 +143,7 @@ def optimization_page() -> None:
             fig_conv = go.Figure()
             fig_conv.add_trace(go.Scatter(
                 y=history, mode="lines+markers", name="Best lap",
-                line=dict(color="seagreen", width=2),
+                line=dict(color=ACCENT, width=2),
             ))
             fig_conv.update_layout(
                 title="Convergence — best lap time per generation",

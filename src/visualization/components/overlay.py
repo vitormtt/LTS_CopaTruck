@@ -27,6 +27,7 @@ from src.analysis.overlay import (
     split_laps,
 )
 from src.visualization.components.helpers import fmt_laptime
+from src.visualization.theme import ACCENT, NEGATIVE, NEUTRAL, POSITIVE, REFERENCE, style
 
 logger = logging.getLogger(__name__)
 
@@ -155,36 +156,32 @@ def overlay_page() -> None:
     fig_v = go.Figure()
     fig_v.add_trace(go.Scatter(x=overlay.grid_m, y=overlay.ref_v_kmh,
                                name="Reference (real)",
-                               line=dict(color="silver", width=2)))
+                               line=dict(color=REFERENCE, width=2)))
     fig_v.add_trace(go.Scatter(x=overlay.grid_m, y=overlay.sim_v_kmh,
                                name="Simulation",
-                               line=dict(color="royalblue", width=2)))
-    fig_v.update_layout(title="Speed vs Distance", height=340,
-                        xaxis_title="distance (m)", yaxis_title="km/h",
-                        margin=dict(l=0, r=0, t=30, b=0))
+                               line=dict(color=ACCENT, width=2)))
+    style(fig_v, title="Speed vs Distance", height=340,
+          xaxis_title="distance (m)", yaxis_title="km/h")
     st.plotly_chart(fig_v, width="stretch")
 
     col1, col2 = st.columns(2)
     with col1:
         fig_dv = go.Figure()
         fig_dv.add_trace(go.Scatter(x=overlay.grid_m, y=overlay.delta_v_kmh,
-                                    name="Δv", line=dict(color="tomato",
+                                    name="Δv", line=dict(color=NEGATIVE,
                                                          width=2)))
-        fig_dv.add_hline(y=0.0, line_dash="dash", line_color="gray")
-        fig_dv.update_layout(title="Δ Speed (sim − ref)", height=280,
-                             xaxis_title="distance (m)", yaxis_title="km/h",
-                             margin=dict(l=0, r=0, t=30, b=0))
+        fig_dv.add_hline(y=0.0, line_dash="dash", line_color=NEUTRAL)
+        style(fig_dv, title="Δ Speed (sim − ref)", height=280,
+              xaxis_title="distance (m)", yaxis_title="km/h")
         st.plotly_chart(fig_dv, width="stretch")
     with col2:
         fig_dt = go.Figure()
         fig_dt.add_trace(go.Scatter(x=overlay.grid_m, y=overlay.delta_time_s,
-                                    name="Δt", line=dict(color="seagreen",
+                                    name="Δt", line=dict(color=POSITIVE,
                                                          width=2)))
-        fig_dt.add_hline(y=0.0, line_dash="dash", line_color="gray")
-        fig_dt.update_layout(title="Cumulative Δ Time (sim − ref)",
-                             height=280, xaxis_title="distance (m)",
-                             yaxis_title="s",
-                             margin=dict(l=0, r=0, t=30, b=0))
+        fig_dt.add_hline(y=0.0, line_dash="dash", line_color=NEUTRAL)
+        style(fig_dt, title="Cumulative Δ Time (sim − ref)", height=280,
+              xaxis_title="distance (m)", yaxis_title="s")
         st.plotly_chart(fig_dt, width="stretch")
 
     # --- Worst sectors table ---

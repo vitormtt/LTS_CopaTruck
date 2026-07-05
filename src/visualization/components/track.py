@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from src.tracks.hdf5 import CircuitData, CircuitHDF5Writer
 from .helpers import DATA_PATH, load_hdf5, load_interlagos_real, init_session_state
+from src.visualization.theme import ACCENT, NEUTRAL
 
 # Modified tracks are persisted here — source files are never overwritten
 CUSTOM_TRACKS_SUBDIR = "custom"
@@ -159,17 +160,17 @@ def pista_page() -> None:
     fig.add_trace(go.Scatter(
         x=plot_data['x_c'], y=plot_data['y_c'],
         mode="lines", name="Centerline",
-        line=dict(color="royalblue", width=2)
+        line=dict(color=ACCENT, width=2)
     ))
     fig.add_trace(go.Scatter(
         x=plot_data['left_x'], y=plot_data['left_y'],
         mode="lines", name="Left Boundary",
-        line=dict(color='limegreen', dash='dot', width=1)
+        line=dict(color=NEUTRAL, dash='dot', width=1)
     ))
     fig.add_trace(go.Scatter(
         x=plot_data['right_x'], y=plot_data['right_y'],
         mode="lines", name="Right Boundary",
-        line=dict(color='tomato', dash='dot', width=1)
+        line=dict(color=NEUTRAL, dash='dot', width=1)
     ))
     
     fig.update_layout(
