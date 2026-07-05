@@ -297,6 +297,11 @@ class VehicleParams:
     initial_fuel_l: float = 100.0            # [L] initial fuel load
     fuel_density_kg_per_l: float = 0.85      # [kg/L] diesel
 
+    # Regulation speed governor [km/h]. Copa Truck 2025 limits trucks to
+    # 200 km/h. 0.0 = not set: solver falls back to 200 km/h for Truck
+    # category and unlimited otherwise (back-compat with old presets).
+    speed_limit_kmh: float = 0.0
+
     # Metadata
     name: str = "Unnamed Vehicle"
     manufacturer: str = ""
@@ -335,6 +340,7 @@ class VehicleParams:
             fuel_consumption_l_per_km=data.get('fuel_consumption_l_per_km', 1.5),
             initial_fuel_l=data.get('initial_fuel_l', 100.0),
             fuel_density_kg_per_l=data.get('fuel_density_kg_per_l', 0.85),
+            speed_limit_kmh=data.get('speed_limit_kmh', 0.0),
             name=data.get('name', 'Unnamed Vehicle'),
             manufacturer=data.get('manufacturer', ''),
             year=data.get('year', 0),

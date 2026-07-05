@@ -308,10 +308,12 @@ def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
     d = vp.to_solver_dict()
     p = _LegacyVehicleParams(**{k: v for k, v in d.items()
                                  if k in _LegacyVehicleParams.__dataclass_fields__})
-    # Set speed limit for trucks (200 km/h = 55.56 m/s to match qualifying telemetry)
-    if vp.category == "Truck" or "truck" in vp.name.lower():
+    # Regulation speed governor: explicit param wins; legacy presets without
+    # it fall back to the Copa Truck 200 km/h limit (Truck) or unlimited.
+    if getattr(vp, "speed_limit_kmh", 0.0) > 0.0:
+        p.speed_limit = vp.speed_limit_kmh / 3.6
+    elif vp.category == "Truck" or "truck" in vp.name.lower():
         p.speed_limit = 200.0 / 3.6
-
     else:
         p.speed_limit = 999.0
     return p
