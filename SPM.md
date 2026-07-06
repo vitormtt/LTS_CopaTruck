@@ -60,6 +60,30 @@
 - **Estado**: NADA aplicado. µ=1.6, flags default-off, tracks originais intactos. `interlagos_gps.hdf5`
   probe removido. Aguarda pesquisa do Vitor → então implementa pipeline TUM+validação.
 
+### HANDOFF 2026-07-06 (Vitor abriu OUTRA sessão — driver model) — DIREÇÃO p/ próxima sessão
+> ⚠️ **PARALLEL SESSION**: Vitor iniciou 2ª sessão neste repo (driver model). Regra 1-sessão/repo:
+> ESTA sessão parou de escrever após este handoff. Coordenar antes de editar em paralelo.
+- **Direção do Vitor (4 pontos) p/ a calibração de pista/µ**:
+  1. **Âncora = tempos da INTERNET por pista** (records/pole oficiais), não só o .xrk. Cascavel
+     79.505, Interlagos pole ~123.9. Levantar a tabela de tempos reais por pista do calendário.
+  2. **Usar arquivos de REGULAMENTO por pista** p/ entender situações/limites de corrida (speed
+     limit, pit, safety car, específicos do round). HOJE só existe `copa-truck-regulamento-tecnico-2025-.pdf`
+     (geral) + `regulation_validator.py` (veículo). **Falta**: regulamento suplementar por pista → localizar/criar.
+  3. **µ por pista CALCULADO do dado real TRATADO**, não back-fit de lap-time. Método: µ_tyre a partir
+     do pico de |ay| medido no .xrk, corrigido por aero/transferência. **PROBE FEITO**: Cascavel real
+     |ay| p95=1.06G p99=1.22G peak=1.38G → **confirma µ≈1.15-1.2** (bate com o 1.165 do lap-time). Este
+     é o cross-check que valida a calibração — fazer igual p/ Interlagos.
+  4. **DRIVER MODEL** (preocupação do Vitor "ta alucinando?"): hoje NÃO há driver model adaptativo —
+     é QSS "piloto perfeito" no limite de grip (`_driver_inputs_from_accel`: throttle binário, brake do
+     decel; segue centerline ou racing line min-curvature). Não alucina, mas é idealizado. Os GAPS do
+     driver model = #10 (travamento/slip → piloto tem que modular sem ABS), racing-line realista, e a
+     adaptação de linha ao setup. É a próxima fronteira (a 2ª sessão do Vitor).
+- **Pipeline alvo (pós-pesquisa)**: geometria TUM FTM `SaoPaulo.csv` (surveyed, 4300m, larguras reais) →
+  alinhar GPS multi-volta por arc-length (Procrustes/ICP) → boundaries reais → racing line TUM →
+  µ do dado real (ponto 3) + validar traço RMSE vs .xrk + âncora tempos internet (ponto 1).
+- **Commits desta sessão**: `d6e5818` (viz sign-fix Batch A) · `7ee53fc` (flag flying-lap) ·
+  `789af02` (prompt pesquisa + achados). Suíte 164 verde no último estado tocado.
+
 ## 0. Sessão 2026-07-05 — branch `feature/claude-product-upgrade`
 
 - Working tree pré-sessão estava LIMPO vs HEAD (contaminação GT de 2026-07-02 já
