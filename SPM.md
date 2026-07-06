@@ -47,6 +47,28 @@
   App roda 100% JSON fallback local. Deploy real = VPS isolada (DISTRIBUTION_OPTIONS opção 1).
 - **Branch**: `feature/claude-product-upgrade` (não mergeada em develop — aguarda OK).
 
+### Sessão 2026-07-06 — otimizador honesto, overlay+compare, ARB
+- **ARB no solver — FINDING (não é bug)**: ARB é **intrinsecamente inerte** no lap time num
+  solver ponto-massa QSS. No limite de curva o eixo carregado satura perto do mesmo piso de grip
+  independente do balanço de rigidez (testado: limite bicicleta + sensibilidade de carga por-roda
+  convexa — ambos deixaram ARB chapado). ARB afeta balanço **transiente** (turn-in/mid-corner) →
+  exige 14DOF (IP SARU, fora deste repo). Hacks revertidos, solver intacto (150 testes verdes).
+- **Otimizador honesto**: `optimization.py` agora busca só **asa × pressão** (os knobs que mexem
+  no lap). ARB/brake bias removidos da busca (inertes). Grid vira heatmap asa×pressão que **varia**
+  de verdade (Cascavel ótimo: wing 9 / 1.4 bar → **79.9 s**, vs pole real 79.505 s). Nota de roadmap
+  ARB→14DOF na página.
+- **Overlay = ferramenta única** (Compare aposentado, arquivado):
+  - Picker das 4 voltas reais bundled (`_quarantine/Perez-data/*.xrk`) + upload manual.
+  - Análise de delta (Δv, Δt cumulativo, RMSE, piores trechos) + **multi-canal** sim-vs-real
+    (Long-G, Lat-G, throttle, brake) dos canais do .xrk. Verificado rodando: Andre Marques
+    Interlagos, Δt sim +7.5 s (centerline ruidoso, esperado).
+- **Batch aposentado** (arquivado): redundante com o sweep da Optimization.
+- **Router final (6 páginas)**: Parameters · Track · Simulation · Results · Telemetry Overlay · Optimization.
+- **PENDENTE P0b (calibração honesta toward real)**: usar o overlay vs Cascavel real (âncora
+  1:19.505) p/ identificar onde o sim perde/ganha e ajustar µ/aero/torque DENTRO do regulamento.
+  Muda lap ≥0.5 s → reportar Δ e ter OK do Vitor ANTES de commitar (guardrail). Ferramenta agora
+  pronta (picker + multi-canal). Cascavel é a âncora; Interlagos bloqueado (traçado ruidoso).
+
 ### Sessão 2026-07-05 (parte 3) — auditoria params + P1-02 + freio
 - **P1-02 (paleta Plotly)** ✅ `src/visualization/theme.py`: template dark `lts_dark`
   (default global) + tokens semânticos (ACCENT #f28a1f/REFERENCE/POSITIVE/NEGATIVE/LATERAL...).
