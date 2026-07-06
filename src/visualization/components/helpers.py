@@ -178,8 +178,6 @@ def init_session_state() -> None:
         "csv_path": None,
         "all_results": [],
         "params_saved": False,
-        "track_width_scale": 1.0,
-        "saved_track_width_scale": 1.0,
         "track_grip_mult": 1.0,
         "saved_track_grip_mult": 1.0,
         "track_dirty": False,

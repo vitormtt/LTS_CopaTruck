@@ -24,6 +24,7 @@ NEGATIVE = "#e5544b"      # loss / braking / warning        (4 75% 60%)
 LATERAL = "#4aa3df"       # lateral channel                 (205 70% 58%)
 NEUTRAL = "#6b7280"       # gridlines, zero refs, muted      (220 9% 46%)
 HIGHLIGHT = "#c77dff"     # tertiary (rpm/gear overlays)    (275 100% 74%)
+EDGE_WHITE = "#e6e8ee"    # track edges / high-contrast line (220 15% 92%)
 
 # Sequential scale for speed/g heatmaps (slow -> fast reads dark -> accent).
 # Diverging RdYlGn kept only where "good/bad" polarity is the message.
