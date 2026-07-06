@@ -84,6 +84,9 @@ class SimulationConfig:
     track_temperature_c: float = 35.0
     tyre_compound: str = "slick_dry"
     export_driver_inputs: bool = True
+    # Drive the minimum-curvature racing line instead of the centerline.
+    # Default False keeps the point-mass QSS baseline (Hase product) intact.
+    use_racing_line: bool = False
     notes: str = ""
 
     v_entry_kmh: float = 100.0

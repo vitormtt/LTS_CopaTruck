@@ -320,10 +320,54 @@ def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
 
 
 
-def _compute_track_geometry(circuit) -> tuple:
-    """Compute ds, s, radius and signed curvature from circuit centerline."""
-    x = circuit.centerline_x
-    y = circuit.centerline_y
+def _driving_line(circuit) -> tuple:
+    """Racing-line (x, y) for the circuit, cached on the circuit object.
+
+    Falls back to the centerline when the circuit lacks boundary channels.
+    The line depends only on track geometry, so it is computed once and
+    reused across the many solver calls of an optimization sweep.
+    """
+    cached = getattr(circuit, "_racing_line_xy", None)
+    if cached is not None:
+        return cached
+
+    x, y = circuit.centerline_x, circuit.centerline_y
+    have_bounds = all(
+        getattr(circuit, attr, None) is not None and len(getattr(circuit, attr)) == len(x)
+        for attr in ("left_boundary_x", "left_boundary_y",
+                     "right_boundary_x", "right_boundary_y")
+    )
+    if have_bounds:
+        from src.tracks.racing_line import compute_racing_line
+        center = np.column_stack([x, y])
+        left = np.column_stack([circuit.left_boundary_x, circuit.left_boundary_y])
+        right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
+        # Closed loop when the ends nearly meet.
+        closed = bool(np.hypot(x[0] - x[-1], y[0] - y[-1]) < 5.0)
+        rl = compute_racing_line(center, left, right, closed=closed)
+        result = (rl.x, rl.y)
+    else:
+        result = (np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+
+    try:
+        circuit._racing_line_xy = result
+    except (AttributeError, TypeError):
+        pass  # circuit may be immutable; recompute next call
+    return result
+
+
+def _compute_track_geometry(circuit, path: Optional[tuple] = None) -> tuple:
+    """Compute ds, s, radius and signed curvature from a driving line.
+
+    Args:
+        circuit: Circuit with centerline (and optionally boundaries).
+        path: Optional (x, y) driving line; defaults to the centerline.
+    """
+    if path is not None:
+        x, y = path
+    else:
+        x = circuit.centerline_x
+        y = circuit.centerline_y
     n = len(x)
 
     ds = np.zeros(n)
@@ -1306,7 +1350,8 @@ def run_simulation(
     torque_map_rpm = params_eff.engine.torque_curve_rpm
     torque_map_nm  = params_eff.engine.torque_curve_nm
 
-    x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit)
+    driving_path = _driving_line(circuit) if getattr(config, "use_racing_line", False) else None
+    x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit, driving_path)
 
     mu          = params_eff.tire.friction_coefficient
     temp_ini    = config.track_temperature_c + 5.0
@@ -1464,6 +1509,7 @@ def run_bicycle_model(
         track_temperature_c=effective_track_temp,
         tyre_compound="slick_dry",
         export_driver_inputs=True,
+        use_racing_line=bool(config.get("use_racing_line", False)),
     )
     # Propagate the vehicle's cold tyre pressure into the setup so the
     # pressure input actually reaches the solver (hot-pressure trace and
