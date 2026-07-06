@@ -42,6 +42,24 @@
   Aí as 2 pistas ancoram juntas com µ físico. µ fica 1.6, flags default-off por enquanto.
 - **Próximo**: recaptura Interlagos (ENU + spline periódica + boundaries) → re-rodar calibração.
 
+### Recaptura Interlagos — GPS probe → decisão TUM FTM (2026-07-06)
+- **Probe GPS (Andre Marques lap 1)**: extraí loop via `channels['GPS Latitude/Longitude']`
+  (timecodes próprios, 25 Hz; `extract_session`/merge quebra nesse .xrk — usar canal cru).
+  Loop 4241 m, fecha 0.6 m, Rmin ~25 m (0 pts <15 m = limpo). Com ele, **µ=1.165 (Cascavel)
+  ancora as 2 pistas**: Interlagos 122.3 (racing ON) / 124.85 (racing OFF) vs real 124.7 —
+  destravou o nó (era +11s). Provou que o centerline VELHO era o culpado.
+- **DECISÃO VITOR**: GPS de 1 volta = racing line encolhida + ruído, **não condiz com real**.
+  Segurar; **pesquisar metodologia** de reconstrução/validação (prompt em
+  `docs/research/PROMPT_track_reconstruction.md`, Vitor roda no Gemini/Perplexity).
+- **ACHADO forte**: repo já tem `TUMFTMDownloader` — `interlagos`→`SaoPaulo.csv` = **centerline
+  SURVEYED + larguras reais por ponto** (862 pts, **4300 m** vs real 4309, bbox 666×1048 ≈ real).
+  Download OK (testado). É a geometria de referência (mesma base do min-curvature TUM já no repo).
+- **Plano pós-pesquisa**: geometria = TUM FTM (+ OSM fallback); GPS multi-volta (Interlagos 5,
+  Cascavel 13) só p/ validar traço; alinhar frames (Procrustes/ICP por arc-length); µ calibra
+  contra lap+traço. Provável recapturar Cascavel igual (centerline atual dá 85s racing-off, infiel).
+- **Estado**: NADA aplicado. µ=1.6, flags default-off, tracks originais intactos. `interlagos_gps.hdf5`
+  probe removido. Aguarda pesquisa do Vitor → então implementa pipeline TUM+validação.
+
 ## 0. Sessão 2026-07-05 — branch `feature/claude-product-upgrade`
 
 - Working tree pré-sessão estava LIMPO vs HEAD (contaminação GT de 2026-07-02 já
