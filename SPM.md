@@ -21,9 +21,26 @@
   - **#12** já existia (radio Grid/DE). **#13** ARB precisa 3DOF (Fase 2).
 - **⚠️ Possível sessão paralela**: porta 8501 ocupada por server de OUTRO chat neste repo.
   Não competi por porta (regra 1-sessão-por-repo). Verificar antes de continuar escritas.
-- **Pendente Batch B (guardrail, mede Δ + OK antes de commit)**: #2 qualy v0 (hoje 36 km/h,
-  hardcode `v0=10.0`), #9 serrilhado reta (12 marchas + corte tração), #1 freio (cap `max_decel`
-  mascara bias/força).
+### Batch B (física) — measure-first mudou o diagnóstico
+- **#2 qualy v0**: bug real (hardcode `v0=10`=36 km/h). Fix = **BC periódica de flying lap**
+  (`use_flying_lap_start`, default OFF, igual `use_racing_line`). Ligado: Cascavel 80.69→76.16.
+- **#9 quedas em reta**: **NÃO é bug**. Cascavel+Interlagos: 1 dip ínfimo/volta; upshifts têm Δv
+  POSITIVO. Powertrain/gearing OK. Zero mudança de código.
+- **#1 freio**: sliders funcionam fraco (bias 40→70%=0.2s; force/decel saturam no default). O
+  "não funcional" real = `brake_hardware.py` unwired + bias só importa com modelo de **travamento**
+  = dobra no **#10** (Batch C). Ponto-massa grip-limited: freio quase não move lap (correto).
+
+### CALIBRAÇÃO P0b — findado o nó (decisão Vitor: SEGURA)
+- Recalibrei µ vs âncora Cascavel COM flying-lap+racing line ON, validando **traço** vs .xrk real
+  (FG04 Superpole 79.96s). **Dados escolheram racing line** (RMSE 8.9 vs 13.9 km/h; µ físico).
+- **µ = 1.165** (era **1.6** = ficção) → Cascavel flying+racing **79.50s** ✓ (âncora), traço RMSE
+  8.9 km/h, vmax +4 (aero, follow-up). MAS **Interlagos = 136s** vs real 124.7 (**+11s**).
+- **Nó**: 1 µ físico não bate as 2 pistas. Interlagos "quer" µ=1.6 = fiction compensando o
+  **centerline ruidoso** (SPM: bloqueado). µ é do pneu (~1.15-1.3), não da pista → µ=1.165 correto.
+- **DECISÃO VITOR (2026-07-06)**: **SEGURA a recalibração** até **recapturar centerline do
+  Interlagos** dos GPS dos .xrk (`GPS Latitude/Longitude` presentes; reusar `generate_from_xrk.py`).
+  Aí as 2 pistas ancoram juntas com µ físico. µ fica 1.6, flags default-off por enquanto.
+- **Próximo**: recaptura Interlagos (ENU + spline periódica + boundaries) → re-rodar calibração.
 
 ## 0. Sessão 2026-07-05 — branch `feature/claude-product-upgrade`
 

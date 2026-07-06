@@ -565,6 +565,8 @@ _RHO_AIR = 1.225    # [kg/m³]
 # Output sign of the lateral-accel channel: +1 → positive Ay = left turn
 # (kappa > 0). Flip to -1.0 if a reference logger uses the opposite mount.
 _AY_SIGN = 1.0
+# Convergence tolerance for the qualifying flying-lap periodic v0 [m/s].
+_QUALI_V0_TOL_MS = 0.3
 # Tyre load sensitivity: relative grip loss per unit of relative lateral
 # load transfer on an axle (Pacejka 2012, load-sensitivity of mu).
 # Calibrated against the validated lap-time windows (Cascavel 76-82 s,
@@ -1360,19 +1362,18 @@ def run_simulation(
     temp_ini    = config.track_temperature_c + 5.0
     p_tyre_cold = config.setup.tyre_pressure_avg_front
 
-    if config.is_qualifying():
-        v0 = 10.0
-    elif config.is_flying_lap():
+    if config.is_flying_lap():
         v0 = config.v_entry_kmh / 3.6
-    else:
+    elif config.is_standing_start():
         v0 = 0.0
+    else:  # qualifying — seed for the periodic fixed-point below
+        v0 = 10.0
 
-    # No pre-lap: the validation windows (VW 31320 Cascavel 76-82 s,
-    # Interlagos 125-132 s) were calibrated with the lap starting from the
-    # mode's nominal v0 and ambient tyre state. A convergence pre-lap
-    # changes the simulation regime (v0 ~ top of the previous lap, tyres
-    # pre-heated) and must not be reintroduced without re-validating
-    # against real telemetry.
+    # Tyres still start at ambient state (no thermal pre-lap): the validation
+    # windows were calibrated cold, and a thermal warm-up must not be
+    # reintroduced without re-validating vs real telemetry. The ENTRY SPEED,
+    # however, now uses the flying-lap periodic boundary condition for
+    # qualifying (below) instead of the old cold v0 = 10 m/s (~36 km/h).
     if config.is_standing_start():
         raw = _run_standing_start(
             p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
@@ -1384,13 +1385,35 @@ def run_simulation(
             torque_map_nm=torque_map_nm,
         )
     else:
-        raw = _run_ggv_solver(
-            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-            mu=mu, v0=v0,
-            temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-            torque_map_rpm=torque_map_rpm,
-            torque_map_nm=torque_map_nm,
-        )
+        def _ggv(v_start: float) -> dict:
+            return _run_ggv_solver(
+                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+                mu=mu, v0=v_start,
+                temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
+                torque_map_rpm=torque_map_rpm,
+                torque_map_nm=torque_map_nm,
+            )
+
+        raw = _ggv(v0)
+        if config.is_qualifying() and getattr(config, "use_flying_lap_start", False):
+            # Flying-lap periodic boundary condition: a qualifying lap is a
+            # closed loop, so the speed crossing the start/finish line equals
+            # the speed leaving it on the identical previous lap. Fixed-point
+            # iterate v0 -> v_profile[-1] (a handful of passes converge, as it
+            # is the same track point). Removes the unphysical ~36 km/h launch
+            # that made sector 1 a slow climb.
+            #
+            # OFF by default: on the Cascavel anchor it cuts the lap ~4.5 s
+            # (80.7 -> 76.2), overshooting the real 1:19.5 pole by ~3.3 s
+            # because mu was co-calibrated with the cold slow start (same knot
+            # as use_racing_line). Enable only alongside a mu recalibration
+            # validated vs .xrk — see SPM P0b.
+            for _ in range(5):
+                v_end = float(raw["v_profile"][-1])
+                if abs(v_end - v0) < _QUALI_V0_TOL_MS:
+                    break
+                v0 = v_end
+                raw = _ggv(v0)
 
     lap_time = raw["time_profile"][-1]
     v_ms     = raw["v_profile"]
@@ -1521,6 +1544,7 @@ def run_bicycle_model(
         tyre_compound="slick_dry",
         export_driver_inputs=True,
         use_racing_line=bool(config.get("use_racing_line", False)),
+        use_flying_lap_start=bool(config.get("use_flying_lap_start", False)),
     )
     # Propagate the vehicle's cold tyre pressure into the setup so the
     # pressure input actually reaches the solver (hot-pressure trace and
