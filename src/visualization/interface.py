@@ -23,7 +23,6 @@ from src.visualization.components import (
     simulacao_page,
     resultados_page,
     optimization_page,
-    batch_run_page,
     overlay_page
 )
 from src.visualization.components.helpers import RESULTS_PATH, cached_solver, fmt_laptime
@@ -33,7 +32,6 @@ PAGES = {
     "Parameters":    parametros_veiculo_page,
     "Track":         pista_page,
     "Simulation":    simulacao_page,
-    "Batch Simulation": batch_run_page,
     "Results":       resultados_page,
     "Telemetry Overlay": overlay_page,
     "Optimization":  optimization_page,
