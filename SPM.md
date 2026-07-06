@@ -5,6 +5,26 @@
 
 ---
 
+## 0b. Sessão 2026-07-06 (parte 3) — triagem 13 itens produto + Batch A viz
+
+- **Triagem completa dos 13 pontos do Vitor** (diagnóstico c/ evidência rodada). Ordem
+  aprovada: (A) viz sign-fix → (B) física guardrail → (C) épico warmup/pneu → (D) setores-curva.
+- **Batch A APLICADO (uncommitted, 164 testes verdes)** — zero guardrail (lap idêntico 80.69):
+  - **#4/#8** `a_lat` do output agora **assinado** por `sign(kappa)` (`lap_time_solver.py`
+    `_AY_SIGN=1.0`, +=esquerda). GG bilateral; casa .xrk (corr ay×v·yaw **+0.93**). Magnitude/
+    lap intactos. Baseline regressão: só `ay_lat_g` atualizado (guard provou resto byte-idêntico;
+    Interlagos pico lateral = curva à direita → vira `min`).
+  - **#5** marcha em **eixo secundário** step (fim do `gear×1000` no eixo de RPM) — `results.py`.
+  - **#6** gráficos agrupados em `st.tabs` [Track&dynamics / Brake&fuel / Chassis&driver /
+    Sectors]. Lib p/ workspace arrastável real (futuro) = `streamlit-elements`.
+  - **#11** overlay sim no race report agora bilateral (mesma raiz #4). Erro exato pendente Vitor.
+  - **#12** já existia (radio Grid/DE). **#13** ARB precisa 3DOF (Fase 2).
+- **⚠️ Possível sessão paralela**: porta 8501 ocupada por server de OUTRO chat neste repo.
+  Não competi por porta (regra 1-sessão-por-repo). Verificar antes de continuar escritas.
+- **Pendente Batch B (guardrail, mede Δ + OK antes de commit)**: #2 qualy v0 (hoje 36 km/h,
+  hardcode `v0=10.0`), #9 serrilhado reta (12 marchas + corte tração), #1 freio (cap `max_decel`
+  mascara bias/força).
+
 ## 0. Sessão 2026-07-05 — branch `feature/claude-product-upgrade`
 
 - Working tree pré-sessão estava LIMPO vs HEAD (contaminação GT de 2026-07-02 já

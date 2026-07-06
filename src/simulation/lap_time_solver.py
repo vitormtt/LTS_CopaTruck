@@ -562,6 +562,9 @@ def _bias_limited_decel(
 
 _G = 9.81           # [m/s²]
 _RHO_AIR = 1.225    # [kg/m³]
+# Output sign of the lateral-accel channel: +1 → positive Ay = left turn
+# (kappa > 0). Flip to -1.0 if a reference logger uses the opposite mount.
+_AY_SIGN = 1.0
 # Tyre load sensitivity: relative grip loss per unit of relative lateral
 # load transfer on an axle (Pacejka 2012, load-sensitivity of mu).
 # Calibrated against the validated lap-time windows (Cascavel 76-82 s,
@@ -1393,6 +1396,14 @@ def run_simulation(
     v_ms     = raw["v_profile"]
     a_long   = raw["a_long"]
 
+    # Sign the lateral-accel channel by turn direction (kappa > 0 = left).
+    # The solver only ever needs |a_lat| (grip is a friction circle), so
+    # signing the OUTPUT channel leaves lap time and every grip term
+    # untouched — it just makes the G-G diagram bilateral and lets the .xrk
+    # overlay compare left vs right corners. Convention: + = left, which
+    # matches the Copa Truck AiM loggers (LateralAcc corr +0.93 vs v*yaw).
+    a_lat_signed = _AY_SIGN * np.sign(kappa) * np.abs(raw["a_lat"])
+
     # Calculate instantaneous maximum deceleration capacity at each point for brake_pct
     a_decel_max = np.zeros(n)
     m_fuel_initial = p.initial_fuel_l * p.fuel_density
@@ -1432,7 +1443,7 @@ def run_simulation(
         time              = raw["time_profile"],
         v_kmh             = v_ms * 3.6,
         ax_long_g         = a_long / 9.81,
-        ay_lat_g          = raw["a_lat"] / 9.81,
+        ay_lat_g          = a_lat_signed / 9.81,
         throttle_pct      = throttle,
         brake_pct         = brake,
         steering_deg      = raw["steering_deg"],
@@ -1443,7 +1454,7 @@ def run_simulation(
         tyre_pressure_bar = raw["tyre_pressure"],
         fuel_used_l       = raw["fuel_acum"],
         _a_long_ms2       = a_long,
-        _a_lat_ms2        = raw["a_lat"],
+        _a_lat_ms2        = a_lat_signed,
         front_slip_angle_deg = raw["front_slip_angle_deg"],
         rear_slip_angle_deg  = raw["rear_slip_angle_deg"],
     )

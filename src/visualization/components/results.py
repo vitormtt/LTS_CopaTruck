@@ -14,6 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import plotly.io as pio
+from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import streamlit as st
 from datetime import datetime
@@ -378,231 +379,249 @@ def resultados_page() -> None:
 
     st.markdown("---")
     
-    # --- Interactive Plots Section ---
-    st.subheader("Speed map")
+    # --- Interactive plots (grouped into tabs) ---
+    tab_dyn, tab_bf, tab_cd, tab_sec = st.tabs(
+        ["Track & dynamics", "Brake & fuel", "Chassis & driver", "Sectors"])
 
-    x_c = circuit.centerline_x
-    y_c = circuit.centerline_y
-    n = min(len(x_c), len(v_kmh))
+    with tab_dyn:
+        st.subheader("Speed map")
+
+        x_c = circuit.centerline_x
+        y_c = circuit.centerline_y
+        n = min(len(x_c), len(v_kmh))
     
-    fig_map = go.Figure()
-    fig_map.add_trace(go.Scatter(
-        x=x_c[:n], y=y_c[:n], mode='markers',
-        marker=dict(
-            size=3,
-            color=v_kmh[:n],
-            colorscale='RdYlGn',
-            colorbar=dict(title='Speed (km/h)'),
-            cmin=float(np.min(v_kmh[:n])),
-            cmax=float(np.max(v_kmh[:n])),
-        ),
-        name='Speed',
-    ))
-    fig_map.update_layout(
-        xaxis_title='x (m)', yaxis_title='y (m)',
-        height=500, margin=dict(l=0, r=0, t=35, b=0),
-    )
-    fig_map.update_yaxes(scaleanchor='x', scaleratio=1)
-    st.plotly_chart(fig_map, width="stretch")
-
-    st.markdown("---")
-    st.subheader("Dynamics channels")
-
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        fig_v = go.Figure()
-        fig_v.add_trace(go.Scatter(x=dist, y=v_kmh, mode='lines',
-                                   name='Speed', line=dict(color=ACCENT, width=2)))
-        fig_v.update_layout(title='Speed Trace (km/h)', height=280,
-                            margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_v, width="stretch")
-
-    with col_g2:
-        fig_a = go.Figure()
-        fig_a.add_trace(go.Scatter(x=dist, y=alat_g, mode='lines',
-                                   name='Lat G', line=dict(color=LATERAL, width=2)))
-        fig_a.add_trace(go.Scatter(x=dist, y=alon_g, mode='lines',
-                                   name='Long G', line=dict(color=POSITIVE, width=2)))
-        fig_a.update_layout(title='Longitudinal & Lateral Accelerations (G)', height=280,
-                            margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_a, width="stretch")
-
-    col_g3, col_g4 = st.columns(2)
-    with col_g3:
-        fig_temp = go.Figure()
-        fig_temp.add_trace(go.Scatter(x=dist, y=res['temp_pneu'], mode='lines',
-                                      name='Tyre Temp',
-                                      line=dict(color=ACCENT, width=2)))
-        fig_temp.add_hline(y=95.0, line_dash='dash', line_color=POSITIVE,
-                           annotation_text='Optimum Target')
-        fig_temp.update_layout(title='Tyre Temperature (°C)', height=280,
-                               margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_temp, width="stretch")
-
-    with col_g4:
-        fig_press = go.Figure()
-        fig_press.add_trace(go.Scatter(x=dist, y=p_pneu_arr, mode='lines',
-                                       name='Tyre Press',
-                                       line=dict(color=REFERENCE, width=2)))
-        fig_press.update_layout(title='Tyre Pressure (bar)', height=280,
-                                margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_press, width="stretch")
-
-    col_g5, col_g6 = st.columns(2)
-    with col_g5:
-        fig_rpm = go.Figure()
-        fig_rpm.add_trace(go.Scatter(x=dist, y=res['rpm'], mode='lines',
-                                     name='RPM', line=dict(color=HIGHLIGHT, width=2)))
-        fig_rpm.add_trace(go.Scatter(x=dist, y=res['gear'] * 1000, mode='lines',
-                                     name='Gear ×1000', line=dict(color=NEUTRAL,
-                                                                  width=1, dash='dot')))
-        fig_rpm.update_layout(title='Engine RPM + Gear (×1000)', height=280,
-                              margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_rpm, width="stretch")
-
-    with col_g6:
-        # G-Sum Calculation for Brake Trace Analysis
-        g_sum = np.sqrt(alon_g**2 + alat_g**2)
-        
-        fig_ggv = go.Figure()
-        fig_ggv.add_trace(go.Scatter(
-            x=alat_g, y=alon_g, mode='markers',
-            marker=dict(size=3, color=g_sum, colorscale=SEQUENTIAL,
-                        colorbar=dict(title='G-Sum')),
+        fig_map = go.Figure()
+        fig_map.add_trace(go.Scatter(
+            x=x_c[:n], y=y_c[:n], mode='markers',
+            marker=dict(
+                size=3,
+                color=v_kmh[:n],
+                colorscale='RdYlGn',
+                colorbar=dict(title='Speed (km/h)'),
+                cmin=float(np.min(v_kmh[:n])),
+                cmax=float(np.max(v_kmh[:n])),
+            ),
+            name='Speed',
         ))
-        fig_ggv.update_layout(
-            title='GGV Diagram (Color = G-Sum Magnitude)', xaxis_title='Lat G', yaxis_title='Long G',
-            height=400, yaxis_range=[-1.5, 1.5], xaxis_range=[-1.5, 1.5],
-            margin=dict(l=0, r=0, t=30, b=0),
+        fig_map.update_layout(
+            xaxis_title='x (m)', yaxis_title='y (m)',
+            height=500, margin=dict(l=0, r=0, t=35, b=0),
         )
-        fig_ggv.update_yaxes(scaleanchor='x', scaleratio=1)
-        st.plotly_chart(fig_ggv, width="stretch")
+        fig_map.update_yaxes(scaleanchor='x', scaleratio=1)
+        st.plotly_chart(fig_map, width="stretch")
 
-    # --- Brake Trace Analysis (Trail-Braking) ---
-    st.subheader("Brake trace analysis")
-    st.caption("G-sum transition from pure braking to pure cornering (trail-braking).")
-    
-    col_bt1, col_bt2 = st.columns(2)
-    with col_bt1:
-        fig_bt = go.Figure()
-        # Only show where braking is active or transitioning (a_long < -0.1)
-        fig_bt.add_trace(go.Scatter(x=dist, y=np.abs(alon_g), mode='lines',
-                                    name='Long Decel (G)', line=dict(color=POSITIVE, width=2)))
-        fig_bt.add_trace(go.Scatter(x=dist, y=np.abs(alat_g), mode='lines',
-                                    name='Lat G (Absolute)', line=dict(color=LATERAL, width=2)))
-        fig_bt.add_trace(go.Scatter(x=dist, y=g_sum, mode='lines',
-                                    name='G-Sum Magnitude', line=dict(color=HIGHLIGHT, width=2, dash='dot')))
-        fig_bt.update_layout(title='Braking Transition (G-Sum)', height=280,
-                             margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_bt, width="stretch")
+        st.markdown("---")
+        st.subheader("Dynamics channels")
 
-    # --- Fuel consumption (dynamic BSFC model) ---
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        fig_fuel = go.Figure()
-        fig_fuel.add_trace(go.Scatter(
-            x=dist, y=res['consumo'], mode='lines',
-            name='Fuel used', line=dict(color=ACCENT, width=2)))
-        fig_fuel.update_layout(title='Cumulative Fuel Used (L)', height=280,
-                               margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_fuel, width="stretch")
-    with col_f2:
-        # Instantaneous fuel flow [L/h] from the cumulative channel
-        with np.errstate(divide='ignore', invalid='ignore'):
-            fuel_flow = np.gradient(res['consumo'], res['time']) * 3600.0
-        fuel_flow = np.nan_to_num(fuel_flow, nan=0.0, posinf=0.0, neginf=0.0)
-        fig_flow = go.Figure()
-        fig_flow.add_trace(go.Scatter(
-            x=dist, y=fuel_flow, mode='lines',
-            name='Fuel flow', line=dict(color=ACCENT, width=2)))
-        fig_flow.update_layout(title='Fuel Flow (L/h)', height=280,
-                               margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_flow, width="stretch")
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            fig_v = go.Figure()
+            fig_v.add_trace(go.Scatter(x=dist, y=v_kmh, mode='lines',
+                                       name='Speed', line=dict(color=ACCENT, width=2)))
+            fig_v.update_layout(title='Speed Trace (km/h)', height=280,
+                                margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_v, width="stretch")
 
+        with col_g2:
+            fig_a = go.Figure()
+            fig_a.add_trace(go.Scatter(x=dist, y=alat_g, mode='lines',
+                                       name='Lat G', line=dict(color=LATERAL, width=2)))
+            fig_a.add_trace(go.Scatter(x=dist, y=alon_g, mode='lines',
+                                       name='Long G', line=dict(color=POSITIVE, width=2)))
+            fig_a.update_layout(title='Longitudinal & Lateral Accelerations (G)', height=280,
+                                margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_a, width="stretch")
 
-
-    # --- Roll & Slip ---
-    col_g7, col_g8 = st.columns(2)
-    with col_g7:
-        if 'roll_angle_profile' in res:
-            fig_roll = go.Figure()
-            fig_roll.add_trace(go.Scatter(
-                x=dist, y=res['roll_angle_profile'], mode='lines',
-                name='Roll angle', line=dict(color=REFERENCE, width=2)))
-            fig_roll.update_layout(title='Cabin Roll Angle (°)', height=280,
+        col_g3, col_g4 = st.columns(2)
+        with col_g3:
+            fig_temp = go.Figure()
+            fig_temp.add_trace(go.Scatter(x=dist, y=res['temp_pneu'], mode='lines',
+                                          name='Tyre Temp',
+                                          line=dict(color=ACCENT, width=2)))
+            fig_temp.add_hline(y=95.0, line_dash='dash', line_color=POSITIVE,
+                               annotation_text='Optimum Target')
+            fig_temp.update_layout(title='Tyre Temperature (°C)', height=280,
                                    margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_roll, width="stretch")
-    with col_g8:
-        slip_data = res.get('front_slip_angle_deg', np.zeros(len(dist)))
-        fig_slip = go.Figure()
-        fig_slip.add_trace(go.Scatter(
-            x=dist, y=slip_data, mode='lines',
-            name='Slip angle', line=dict(color=HIGHLIGHT, width=2)))
-        fig_slip.update_layout(title='Front Slip Angle (°)', height=280,
-                               margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_slip, width="stretch")
+            st.plotly_chart(fig_temp, width="stretch")
 
-    # --- Driver Inputs ---
-    st.markdown("---")
-    st.subheader("Driver inputs")
+        with col_g4:
+            fig_press = go.Figure()
+            fig_press.add_trace(go.Scatter(x=dist, y=p_pneu_arr, mode='lines',
+                                           name='Tyre Press',
+                                           line=dict(color=REFERENCE, width=2)))
+            fig_press.update_layout(title='Tyre Pressure (bar)', height=280,
+                                    margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_press, width="stretch")
 
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        fig_pedals = go.Figure()
-        fig_pedals.add_trace(go.Scatter(
-            x=dist, y=res.get('throttle_pct', np.zeros(len(dist))),
-            mode='lines', name='Throttle %',
-            line=dict(color=POSITIVE, width=2)))
-        fig_pedals.add_trace(go.Scatter(
-            x=dist, y=res.get('brake_pct', np.zeros(len(dist))),
-            mode='lines', name='Brake %',
-            line=dict(color=NEGATIVE, width=2)))
-        fig_pedals.update_layout(
-            title='Throttle & Brake (%)', height=280,
-            yaxis_title='%', xaxis_title='Distance (m)',
-            margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_pedals, width="stretch")
+        col_g5, col_g6 = st.columns(2)
+        with col_g5:
+            # RPM on the primary axis, gear as an integer step on its own axis —
+            # no more "gear ×1000" overlaid on the RPM scale.
+            max_gear = int(np.max(res['gear'])) if len(res['gear']) else 1
+            fig_rpm = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_rpm.add_trace(
+                go.Scatter(x=dist, y=res['rpm'], mode='lines', name='RPM',
+                           line=dict(color=HIGHLIGHT, width=2)),
+                secondary_y=False,
+            )
+            fig_rpm.add_trace(
+                go.Scatter(x=dist, y=res['gear'], mode='lines', name='Gear',
+                           line=dict(color=NEUTRAL, width=1.8, shape='hv')),
+                secondary_y=True,
+            )
+            fig_rpm.update_yaxes(title_text='RPM', secondary_y=False)
+            fig_rpm.update_yaxes(title_text='Gear', secondary_y=True, showgrid=False,
+                                 range=[0.5, max_gear + 0.5], dtick=1)
+            fig_rpm.update_layout(title='Engine RPM + Gear', height=280,
+                                  margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_rpm, width="stretch")
 
-    with col_d2:
-        fig_steer = go.Figure()
-        fig_steer.add_trace(go.Scatter(
-            x=dist, y=res.get('steering_deg', np.zeros(len(dist))),
-            mode='lines', name='Steering',
-            line=dict(color=LATERAL, width=2)))
-        fig_steer.update_layout(
-            title='Steering Angle (°)', height=280,
-            yaxis_title='deg', xaxis_title='Distance (m)',
-            margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_steer, width="stretch")
+        with col_g6:
+            # G-Sum Calculation for Brake Trace Analysis
+            g_sum = np.sqrt(alon_g**2 + alat_g**2)
+        
+            fig_ggv = go.Figure()
+            fig_ggv.add_trace(go.Scatter(
+                x=alat_g, y=alon_g, mode='markers',
+                marker=dict(size=3, color=g_sum, colorscale=SEQUENTIAL,
+                            colorbar=dict(title='G-Sum')),
+            ))
+            fig_ggv.update_layout(
+                title='GGV Diagram (Color = G-Sum Magnitude)', xaxis_title='Lat G', yaxis_title='Long G',
+                height=400, yaxis_range=[-1.5, 1.5], xaxis_range=[-1.5, 1.5],
+                margin=dict(l=0, r=0, t=30, b=0),
+            )
+            fig_ggv.update_yaxes(scaleanchor='x', scaleratio=1)
+            st.plotly_chart(fig_ggv, width="stretch")
 
-    # Sector Timing Tab
-    st.markdown("---")
-    st.subheader("Sector timing")
-    track_len = float(dist[-1])
-    n_sectors = st.slider("Number of sectors", 3, 12, 3, key="n_sectors")
-    sector_boundaries = np.linspace(0, track_len, n_sectors + 1)
-    sector_rows = []
-    for s_idx in range(n_sectors):
-        s_start, s_end = sector_boundaries[s_idx], sector_boundaries[s_idx + 1]
-        mask = (dist >= s_start) & (dist < s_end)
-        if not np.any(mask):
-            continue
-        idxs = np.where(mask)[0]
-        t_sector = res['time'][idxs[-1]] - res['time'][idxs[0]]
-        v_avg_s = float(np.mean(v_kmh[mask]))
-        v_min_s = float(np.min(v_kmh[mask]))
-        v_max_s = float(np.max(v_kmh[mask]))
-        sector_rows.append({
-            "Sector": f"Sector {s_idx+1}",
-            "From (m)": f"{s_start:.0f}",
-            "To (m)": f"{s_end:.0f}",
-            "Time": fmt_laptime(t_sector),
-            "V avg (km/h)": f"{v_avg_s:.1f}",
-            "V min (km/h)": f"{v_min_s:.1f}",
-            "V max (km/h)": f"{v_max_s:.1f}",
-        })
-    if sector_rows:
-        st.dataframe(pd.DataFrame(sector_rows), width="stretch")
+    with tab_bf:
+        # --- Brake Trace Analysis (Trail-Braking) ---
+        st.subheader("Brake trace analysis")
+        st.caption("G-sum transition from pure braking to pure cornering (trail-braking).")
+    
+        col_bt1, col_bt2 = st.columns(2)
+        with col_bt1:
+            fig_bt = go.Figure()
+            # Only show where braking is active or transitioning (a_long < -0.1)
+            fig_bt.add_trace(go.Scatter(x=dist, y=np.abs(alon_g), mode='lines',
+                                        name='Long Decel (G)', line=dict(color=POSITIVE, width=2)))
+            fig_bt.add_trace(go.Scatter(x=dist, y=np.abs(alat_g), mode='lines',
+                                        name='Lat G (Absolute)', line=dict(color=LATERAL, width=2)))
+            fig_bt.add_trace(go.Scatter(x=dist, y=g_sum, mode='lines',
+                                        name='G-Sum Magnitude', line=dict(color=HIGHLIGHT, width=2, dash='dot')))
+            fig_bt.update_layout(title='Braking Transition (G-Sum)', height=280,
+                                 margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_bt, width="stretch")
+
+        # --- Fuel consumption (dynamic BSFC model) ---
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            fig_fuel = go.Figure()
+            fig_fuel.add_trace(go.Scatter(
+                x=dist, y=res['consumo'], mode='lines',
+                name='Fuel used', line=dict(color=ACCENT, width=2)))
+            fig_fuel.update_layout(title='Cumulative Fuel Used (L)', height=280,
+                                   margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_fuel, width="stretch")
+        with col_f2:
+            # Instantaneous fuel flow [L/h] from the cumulative channel
+            with np.errstate(divide='ignore', invalid='ignore'):
+                fuel_flow = np.gradient(res['consumo'], res['time']) * 3600.0
+            fuel_flow = np.nan_to_num(fuel_flow, nan=0.0, posinf=0.0, neginf=0.0)
+            fig_flow = go.Figure()
+            fig_flow.add_trace(go.Scatter(
+                x=dist, y=fuel_flow, mode='lines',
+                name='Fuel flow', line=dict(color=ACCENT, width=2)))
+            fig_flow.update_layout(title='Fuel Flow (L/h)', height=280,
+                                   margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_flow, width="stretch")
+
+
+
+    with tab_cd:
+        # --- Roll & Slip ---
+        col_g7, col_g8 = st.columns(2)
+        with col_g7:
+            if 'roll_angle_profile' in res:
+                fig_roll = go.Figure()
+                fig_roll.add_trace(go.Scatter(
+                    x=dist, y=res['roll_angle_profile'], mode='lines',
+                    name='Roll angle', line=dict(color=REFERENCE, width=2)))
+                fig_roll.update_layout(title='Cabin Roll Angle (°)', height=280,
+                                       margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_roll, width="stretch")
+        with col_g8:
+            slip_data = res.get('front_slip_angle_deg', np.zeros(len(dist)))
+            fig_slip = go.Figure()
+            fig_slip.add_trace(go.Scatter(
+                x=dist, y=slip_data, mode='lines',
+                name='Slip angle', line=dict(color=HIGHLIGHT, width=2)))
+            fig_slip.update_layout(title='Front Slip Angle (°)', height=280,
+                                   margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_slip, width="stretch")
+
+        # --- Driver Inputs ---
+        st.markdown("---")
+        st.subheader("Driver inputs")
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            fig_pedals = go.Figure()
+            fig_pedals.add_trace(go.Scatter(
+                x=dist, y=res.get('throttle_pct', np.zeros(len(dist))),
+                mode='lines', name='Throttle %',
+                line=dict(color=POSITIVE, width=2)))
+            fig_pedals.add_trace(go.Scatter(
+                x=dist, y=res.get('brake_pct', np.zeros(len(dist))),
+                mode='lines', name='Brake %',
+                line=dict(color=NEGATIVE, width=2)))
+            fig_pedals.update_layout(
+                title='Throttle & Brake (%)', height=280,
+                yaxis_title='%', xaxis_title='Distance (m)',
+                margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_pedals, width="stretch")
+
+        with col_d2:
+            fig_steer = go.Figure()
+            fig_steer.add_trace(go.Scatter(
+                x=dist, y=res.get('steering_deg', np.zeros(len(dist))),
+                mode='lines', name='Steering',
+                line=dict(color=LATERAL, width=2)))
+            fig_steer.update_layout(
+                title='Steering Angle (°)', height=280,
+                yaxis_title='deg', xaxis_title='Distance (m)',
+                margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_steer, width="stretch")
+
+    with tab_sec:
+        # Sector Timing Tab
+        st.markdown("---")
+        st.subheader("Sector timing")
+        track_len = float(dist[-1])
+        n_sectors = st.slider("Number of sectors", 3, 12, 3, key="n_sectors")
+        sector_boundaries = np.linspace(0, track_len, n_sectors + 1)
+        sector_rows = []
+        for s_idx in range(n_sectors):
+            s_start, s_end = sector_boundaries[s_idx], sector_boundaries[s_idx + 1]
+            mask = (dist >= s_start) & (dist < s_end)
+            if not np.any(mask):
+                continue
+            idxs = np.where(mask)[0]
+            t_sector = res['time'][idxs[-1]] - res['time'][idxs[0]]
+            v_avg_s = float(np.mean(v_kmh[mask]))
+            v_min_s = float(np.min(v_kmh[mask]))
+            v_max_s = float(np.max(v_kmh[mask]))
+            sector_rows.append({
+                "Sector": f"Sector {s_idx+1}",
+                "From (m)": f"{s_start:.0f}",
+                "To (m)": f"{s_end:.0f}",
+                "Time": fmt_laptime(t_sector),
+                "V avg (km/h)": f"{v_avg_s:.1f}",
+                "V min (km/h)": f"{v_min_s:.1f}",
+                "V max (km/h)": f"{v_max_s:.1f}",
+            })
+        if sector_rows:
+            st.dataframe(pd.DataFrame(sector_rows), width="stretch")
 
     # Compile HTML report if requested
     if html_export_triggered:
