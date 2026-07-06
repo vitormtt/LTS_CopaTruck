@@ -100,11 +100,18 @@
 
 ## 1. Identidade
 
-- **Produto**: Lap time simulator Copa Truck — **MVP Simples / Acadêmico (Pérez)**
+> ⚠️ **VIRADA ESTRATÉGICA 2026-07-06 (decisão explícita do Vitor)**: o desacoplamento
+> MVP de 30/jun foi **REVERTIDO**. lts-copatruck passa a ser o **sim AVANÇADO** (física
+> completa: racing line, 3DOF, freio modelado hardware+térmico validado). O **QSS ponto-massa
+> simples atual** é que vira o **produto do Hase** (mais simples). A regra "não inserir 3DOF/
+> térmico aqui" está **CANCELADA** — ver §5. Motivo: modelo simples não dá realismo (ARB inerte,
+> centerline errada, freio raso); Vitor quer o sim que se aproxima do real p/ validar vs .xrk.
+
+- **Produto**: Lap time simulator Copa Truck — **Sim avançado (full physics)** ⟵ era MVP simples
 - **GitHub**: `vitormtt/LTS_CopaTruck` — **NUNCA deletar** (repo ativo do produto)
 - **Local**: `~/Projects/SARU/partnerships/lts-copatruck/`
-- **Branch ativa**: `develop`
-- **Parceria**: Pérez (pós-graduação) — O repositório foi simplificado e desacoplado do `saru-core` para ser entregue como MVP sem IP proprietária avançada.
+- **Branch ativa**: `feature/claude-product-upgrade`
+- **Parceria**: Pérez (pós-graduação). O QSS simples derivado deste repo vai p/ o Hase.
 
 ---
 
@@ -170,8 +177,13 @@ src/
 
 1. **Nunca alterar two-pass solver** sem cross-validation contra lap times conhecidos.
 2. **Testes antes de commit** — Garantir que 100% da suíte continue passando localmente isolada.
-3. **Não inserir IP da SARU** — Modelos 3DOF, 14DOF e térmicos avançados **não** devem ser colocados neste repositório.
+3. ~~**Não inserir IP da SARU** — Modelos 3DOF, 14DOF e térmicos~~ **CANCELADA 2026-07-06**
+   (virada estratégica §1). 3DOF, racing line e freio térmico agora são **IN SCOPE** aqui.
+   14DOF transiente segue no saru-core (não é foco deste repo). Físicas avançadas entram
+   por trás de flags/seletor de modelo (o QSS simples continua selecionável = base do Hase).
 4. **Params físicos**: todos via VehicleParams JSON ou HDF5, nunca hardcode.
+5. **Guardrail de calibração vale mais que nunca**: toda mudança de física que mexe lap ≥0.5s
+   → reportar Δ + overlay vs .xrk real ANTES de commitar. Épico não dispensa validação.
 
 ---
 
