@@ -5,11 +5,25 @@ Author: Lap Time Simulator Team
 Date: 2026-06-06
 """
 import os
+import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 from src.tracks.hdf5 import CircuitData
+from src.tracks.racing_line import compute_racing_line
 from .helpers import DATA_PATH, load_hdf5, init_session_state
-from src.visualization.theme import ACCENT, EDGE_WHITE
+from src.visualization.theme import ACCENT, EDGE_WHITE, NEUTRAL
+
+
+def _racing_line_plot_xy(circuit, plot_data) -> tuple:
+    """Racing line projected into the plot's rotated coordinate frame."""
+    center = np.column_stack([circuit.centerline_x, circuit.centerline_y])
+    left = np.column_stack([circuit.left_boundary_x, circuit.left_boundary_y])
+    right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
+    closed = bool(np.hypot(*(center[0] - center[-1])) < 5.0)
+    rl = compute_racing_line(center, left, right, closed=closed)
+    # Same rotation load_hdf5 applies: x_plot = -(y - y0), y_plot = x - x0.
+    x0, y0 = circuit.centerline_x[0], circuit.centerline_y[0]
+    return -(rl.y - y0), (rl.x - x0)
 
 # Modified tracks are persisted here — source files are never overwritten
 CUSTOM_TRACKS_SUBDIR = "custom"
@@ -54,6 +68,14 @@ def pista_page() -> None:
              "solver boundary. 1.00 = baseline (green track). Raise for a "
              "rubbered-in, high-grip surface; lower for a cold/dirty track. "
              "Calibrate it so the sim lap matches a real reference lap.",
+    )
+
+    st.session_state.use_racing_line = st.toggle(
+        "Drive the racing line", value=st.session_state.get("use_racing_line", False),
+        help="Solve on the minimum-curvature racing line within the track "
+             "boundaries instead of the centerline. Much closer to real "
+             "(the centerline is not the fast path). Off = simple point-mass "
+             "baseline (the Hase product).",
     )
 
     if st.session_state.track_grip_mult != st.session_state.saved_track_grip_mult:
@@ -101,8 +123,14 @@ def pista_page() -> None:
     fig.add_trace(go.Scatter(
         x=plot_data["x_c"], y=plot_data["y_c"],
         mode="lines", name="Centerline",
-        line=dict(color=ACCENT, width=1.8, dash="dash"),
+        line=dict(color=NEUTRAL, width=1.2, dash="dash"),
     ))
+    if st.session_state.get("use_racing_line", False):
+        rlx, rly = _racing_line_plot_xy(circuit_c, plot_data)
+        fig.add_trace(go.Scatter(
+            x=rlx, y=rly, mode="lines", name="Racing line",
+            line=dict(color=ACCENT, width=2.0),
+        ))
     fig.update_layout(title=meta["name"], xaxis_title="x (m)",
                       yaxis_title="y (m)", height=450,
                       margin=dict(l=0, r=0, t=35, b=0))

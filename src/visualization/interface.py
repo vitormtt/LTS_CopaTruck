@@ -87,6 +87,7 @@ else:
                                       "grip_multiplier", 1.0))
             solver_config = {
                 "coef_aderencia": vp.tire.friction_coefficient * grip_mult,
+                "use_racing_line": st.session_state.get("use_racing_line", False),
             }
 
             # Construct result filepath
