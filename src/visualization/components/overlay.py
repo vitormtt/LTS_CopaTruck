@@ -11,6 +11,7 @@ presentation only.
 """
 from __future__ import annotations
 
+import io
 import logging
 import tempfile
 from pathlib import Path
@@ -65,10 +66,54 @@ def _xrk_laps(file_bytes: bytes) -> pd.DataFrame:
         return list_laps(str(xrk_path))
 
 
-def _pick_reference_lap(uploaded) -> pd.DataFrame | None:
-    """Resolve the uploaded file (.xrk or CSV) into a single reference lap."""
-    if uploaded.name.lower().endswith(".xrk"):
-        file_bytes = uploaded.getvalue()
+# Bundled real Copa Truck reference laps (gitignored telemetry). Optional:
+# absent on a fresh clone, so the picker degrades to upload-only.
+_BUNDLED_LAPS_DIR = (
+    Path(__file__).resolve().parents[3] / "_quarantine" / "Perez-data"
+)
+
+
+def _bundled_reference_laps() -> dict[str, Path]:
+    """Map display label -> path for bundled .xrk reference laps."""
+    if not _BUNDLED_LAPS_DIR.is_dir():
+        return {}
+    return {p.name: p for p in sorted(_BUNDLED_LAPS_DIR.glob("*.xrk"))}
+
+
+def _resolve_reference() -> tuple[str, bytes] | None:
+    """Pick a reference lap source (bundled real lap or manual upload).
+
+    Returns:
+        (filename, file bytes) or None if nothing is selected yet.
+    """
+    bundled = _bundled_reference_laps()
+    options = ["Upload a file"]
+    if bundled:
+        options = ["Bundled real lap", "Upload a file"]
+    source = st.radio("Reference source", options, horizontal=True,
+                      key="overlay_source")
+
+    if source == "Bundled real lap":
+        label = st.selectbox("Real Copa Truck lap", list(bundled),
+                             key="overlay_bundled")
+        return label, bundled[label].read_bytes()
+
+    uploaded = st.file_uploader(
+        "Reference lap (.xrk or .csv)", type=["csv", "xrk"],
+        key="overlay_ref_csv",
+        help="AiM .xrk session (lap picker built-in) or CSV with "
+             "distance_m/v_kmh (aliases distance, speed_kmh; multi-lap "
+             "CSVs split automatically).",
+    )
+    if uploaded is None:
+        return None
+    return uploaded.name, uploaded.getvalue()
+
+
+def _pick_reference_lap(name: str, data: bytes) -> pd.DataFrame | None:
+    """Resolve reference bytes (.xrk or CSV) into a single reference lap."""
+    if name.lower().endswith(".xrk"):
+        file_bytes = data
         laps = _xrk_laps(file_bytes)
         if laps.empty:
             st.error("No laps found in this .xrk session.")
@@ -93,7 +138,7 @@ def _pick_reference_lap(uploaded) -> pd.DataFrame | None:
         return ref
 
     # CSV path: may contain several laps concatenated (distance resets)
-    ref_all = load_reference_csv(uploaded)
+    ref_all = load_reference_csv(io.BytesIO(data))
     laps = split_laps(ref_all)
     if len(laps) == 1:
         return laps[0]
@@ -120,19 +165,14 @@ def overlay_page() -> None:
 
     res = st.session_state.resultados
 
-    st.markdown(
-        "Upload a reference lap: AiM **.xrk** session (lap picker built-in) "
-        "or **CSV** with `distance_m`/`v_kmh` (aliases `distance`, "
-        "`speed_kmh` accepted; multi-lap CSVs are split automatically)."
-    )
-    uploaded = st.file_uploader("Reference lap (.xrk or .csv)",
-                                type=["csv", "xrk"], key="overlay_ref_csv")
-    if uploaded is None:
-        st.info("Waiting for a reference lap file.")
+    resolved = _resolve_reference()
+    if resolved is None:
+        st.info("Pick a bundled real lap or upload a reference file.")
         return
+    ref_name, ref_bytes = resolved
 
     try:
-        ref = _pick_reference_lap(uploaded)
+        ref = _pick_reference_lap(ref_name, ref_bytes)
         if ref is None:
             return
         overlay = compute_overlay(res["distance"], res["v_profile"] * 3.6, ref)
