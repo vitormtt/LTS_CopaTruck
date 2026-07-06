@@ -47,6 +47,26 @@
   App roda 100% JSON fallback local. Deploy real = VPS isolada (DISTRIBUTION_OPTIONS opção 1).
 - **Branch**: `feature/claude-product-upgrade` (não mergeada em develop — aguarda OK).
 
+### Sessão 2026-07-06 (parte 2) — Épico full-physics + Fase 1 racing line
+- **VIRADA registrada** (§1, §5): full physics IN SCOPE aqui; QSS simples → Hase.
+  Plano faseado: `docs/FULL_PHYSICS_PLAN.md` (F1 racing line ✅ · F2 3DOF · F3 freio 3 níveis ·
+  F4 viz solver · F5 pistas calendário).
+- **Fase 1 — Racing line ✅**: `src/tracks/racing_line.py` (min-curvature via bounded LS
+  `lsq_linear` sobre offset lateral α∈[-1,1] dentro das boundaries HDF5; metodologia aberta TUM).
+  Solver segue o traçado via flag `use_racing_line` (default OFF → QSS baseline/Hase intacto,
+  157 testes verdes). Toggle na página Track + traçado desenhado no mapa (laranja sólido sobre
+  centerline tracejada) — resolve o "driver só segue centerline" (ponto 6).
+- **GUARDRAIL — Δ medido (aguarda decisão Vitor)**:
+  - Cascavel 80.69 → **76.36s** (real pole 79.505 → agora **overshoot -3.1s**: µ estava
+    co-calibrado com a centerline pessimista).
+  - Interlagos 133.17 → **122.75s** (real Andre Marques 124.7 → de +7.5s de erro para ~-2s).
+    **Confirma: a centerline era a fonte dominante do erro de canais/lap.**
+  - **DECISÃO PENDENTE**: (a) tornar racing line o default + **recalibrar µ p/ reancorar
+    Cascavel em 79.5** (µ desce); (b) validar via overlay vs .xrk (traço de velocidade, não só lap).
+    Isso muda lap do default → precisa OK explícito (guardrail). Ferramenta de validação pronta.
+- **Próximas fases** (queued, tasks #8-11): 3DOF (ARB vivo), freio 3 níveis (simple/hardware/
+  térmico validado) + curva de bias, viz do solver, pistas do calendário (bloqueio de geometria).
+
 ### Sessão 2026-07-06 — otimizador honesto, overlay+compare, ARB
 - **ARB no solver — FINDING (não é bug)**: ARB é **intrinsecamente inerte** no lap time num
   solver ponto-massa QSS. No limite de curva o eixo carregado satura perto do mesmo piso de grip
