@@ -22,7 +22,6 @@ from src.visualization.components import (
     pista_page,
     simulacao_page,
     resultados_page,
-    compare_page,
     optimization_page,
     batch_run_page,
     overlay_page
@@ -37,7 +36,6 @@ PAGES = {
     "Batch Simulation": batch_run_page,
     "Results":       resultados_page,
     "Telemetry Overlay": overlay_page,
-    "Compare":       compare_page,
     "Optimization":  optimization_page,
 }
 

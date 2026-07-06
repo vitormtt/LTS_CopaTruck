@@ -33,16 +33,28 @@ from src.visualization.theme import ACCENT, NEGATIVE, NEUTRAL, POSITIVE, REFEREN
 logger = logging.getLogger(__name__)
 
 
+# Extra channels (beyond speed) overlaid when the reference carries them.
+_MULTI_CHANNELS = [
+    ("ax_long_g", "Longitudinal G", "a_long"),
+    ("ay_lat_g", "Lateral G", "a_lat"),
+    ("throttle_pct", "Throttle (%)", "throttle_pct"),
+    ("brake_pct", "Brake (%)", "brake_pct"),
+]
+
+
 @st.cache_data(show_spinner="Parsing .xrk session...")
-def _xrk_lap_reference(file_bytes: bytes, lap_num: int | None) -> tuple[pd.DataFrame, dict]:
-    """Extract one lap of an .xrk session as a reference DataFrame.
+def _xrk_lap_reference(
+    file_bytes: bytes, lap_num: int | None
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Extract one lap of an .xrk session.
 
     Args:
         file_bytes: Raw .xrk upload content.
         lap_num: Lap to extract; None = fastest valid lap.
 
     Returns:
-        (reference DataFrame with distance_m/v_kmh, conversion metadata).
+        (speed reference [distance_m, v_kmh], full-channel DataFrame,
+        conversion metadata).
     """
     from src.tracks.telemetry_converter import convert_xrk_to_csv
 
@@ -52,7 +64,8 @@ def _xrk_lap_reference(file_bytes: bytes, lap_num: int | None) -> tuple[pd.DataF
         csv_path = Path(tmp) / "lap.csv"
         meta = convert_xrk_to_csv(str(xrk_path), str(csv_path), lap_num)
         ref = load_reference_csv(str(csv_path))
-    return ref, meta
+        full = pd.read_csv(csv_path).rename(columns={"distance": "distance_m"})
+    return ref, full, meta
 
 
 @st.cache_data(show_spinner="Reading lap list...")
@@ -110,8 +123,16 @@ def _resolve_reference() -> tuple[str, bytes] | None:
     return uploaded.name, uploaded.getvalue()
 
 
-def _pick_reference_lap(name: str, data: bytes) -> pd.DataFrame | None:
-    """Resolve reference bytes (.xrk or CSV) into a single reference lap."""
+def _pick_reference_lap(
+    name: str, data: bytes
+) -> tuple[pd.DataFrame, pd.DataFrame | None] | None:
+    """Resolve reference bytes (.xrk or CSV) into a single reference lap.
+
+    Returns:
+        (speed reference [distance_m, v_kmh], full-channel DataFrame or None)
+        or None if nothing resolves. The full DataFrame powers the
+        multi-channel overlay; it is None for speed-only CSV references.
+    """
     if name.lower().endswith(".xrk"):
         file_bytes = data
         laps = _xrk_laps(file_bytes)
@@ -130,18 +151,18 @@ def _pick_reference_lap(name: str, data: bytes) -> pd.DataFrame | None:
         default_idx = list(options.values()).index(default_num)
         chosen = st.selectbox("Reference lap (.xrk)", list(options),
                               index=default_idx, key="overlay_xrk_lap")
-        ref, meta = _xrk_lap_reference(file_bytes, options[chosen])
+        ref, full, meta = _xrk_lap_reference(file_bytes, options[chosen])
         st.caption(
             f"Session: {meta.get('driver', '?')} · {meta.get('vehicle', '?')} · "
             f"{meta.get('venue', '?')} · {meta.get('date', '?')}"
         )
-        return ref
+        return ref, full
 
     # CSV path: may contain several laps concatenated (distance resets)
     ref_all = load_reference_csv(io.BytesIO(data))
     laps = split_laps(ref_all)
     if len(laps) == 1:
-        return laps[0]
+        return laps[0], None
     options = {
         f"Lap {i + 1} — ~{fmt_laptime(estimate_lap_time_s(lap))} "
         f"({lap['distance_m'].iloc[-1]:.0f} m)": i
@@ -151,7 +172,39 @@ def _pick_reference_lap(name: str, data: bytes) -> pd.DataFrame | None:
     chosen = st.selectbox(f"CSV contains {len(laps)} laps — pick one",
                           list(options), index=default_idx,
                           key="overlay_csv_lap")
-    return laps[options[chosen]]
+    return laps[options[chosen]], None
+
+
+def _render_multichannel(res: dict, ref_full: pd.DataFrame) -> None:
+    """Overlay sim vs real for the channels the reference carries."""
+    dist_ref = ref_full["distance_m"].to_numpy(dtype=float)
+    lo, hi = dist_ref.min(), dist_ref.max()
+    grid = np.linspace(lo, hi, max(int((hi - lo) / 5.0), 2))
+    sim_dist = np.asarray(res["distance"], dtype=float)
+
+    g = 9.81
+    sim_channels = {
+        "a_long": np.asarray(res["a_long"], dtype=float) / g,
+        "a_lat": np.asarray(res["a_lat"], dtype=float) / g,
+        "throttle_pct": np.asarray(res.get("throttle_pct",
+                                            np.zeros_like(sim_dist)), dtype=float),
+        "brake_pct": np.asarray(res.get("brake_pct",
+                                        np.zeros_like(sim_dist)), dtype=float),
+    }
+
+    st.subheader("Channel overlay (sim vs real)")
+    for ref_col, title, sim_key in _MULTI_CHANNELS:
+        if ref_col not in ref_full:
+            continue
+        ref_i = np.interp(grid, dist_ref, ref_full[ref_col].to_numpy(dtype=float))
+        sim_i = np.interp(grid, sim_dist, sim_channels[sim_key])
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=grid, y=ref_i, name="Real",
+                                 line=dict(color=REFERENCE, width=1.6)))
+        fig.add_trace(go.Scatter(x=grid, y=sim_i, name="Sim",
+                                 line=dict(color=ACCENT, width=1.6)))
+        style(fig, title=title, height=240, xaxis_title="distance (m)")
+        st.plotly_chart(fig, width="stretch")
 
 
 def overlay_page() -> None:
@@ -172,9 +225,10 @@ def overlay_page() -> None:
     ref_name, ref_bytes = resolved
 
     try:
-        ref = _pick_reference_lap(ref_name, ref_bytes)
-        if ref is None:
+        picked = _pick_reference_lap(ref_name, ref_bytes)
+        if picked is None:
             return
+        ref, ref_full = picked
         overlay = compute_overlay(res["distance"], res["v_profile"] * 3.6, ref)
     except ValueError as exc:
         st.error(f"Reference file rejected: {exc}")
@@ -240,3 +294,8 @@ def overlay_page() -> None:
         })
     rows.sort(key=lambda r: abs(r["Δt segment (s)"]), reverse=True)
     st.dataframe(rows[:5], width="stretch")
+
+    # --- Multi-channel overlay (when the reference carries the channels) ---
+    if ref_full is not None:
+        st.markdown("---")
+        _render_multichannel(res, ref_full)
