@@ -56,7 +56,8 @@ def _resample_gear_ratios(ratios: list, num_gears: int) -> list:
 from src.vehicle.regulation_validator import validate_regulation_compliance
 
 def parametros_veiculo_page() -> None:
-    st.header("Vehicle Parameters and Setup")
+    st.header("Vehicle Parameters")
+    st.caption("Configure design specs and race setup — save to arm the simulation.")
     init_session_state()
 
     # The whole active fleet is Copa Truck (incl. user-created models) —

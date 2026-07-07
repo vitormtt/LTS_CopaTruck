@@ -308,20 +308,66 @@ def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
     d = vp.to_solver_dict()
     p = _LegacyVehicleParams(**{k: v for k, v in d.items()
                                  if k in _LegacyVehicleParams.__dataclass_fields__})
-    # Set speed limit for trucks (200 km/h = 55.56 m/s to match qualifying telemetry)
-    if vp.category == "Truck" or "truck" in vp.name.lower():
+    # Regulation speed governor: explicit param wins; legacy presets without
+    # it fall back to the Copa Truck 200 km/h limit (Truck) or unlimited.
+    if getattr(vp, "speed_limit_kmh", 0.0) > 0.0:
+        p.speed_limit = vp.speed_limit_kmh / 3.6
+    elif vp.category == "Truck" or "truck" in vp.name.lower():
         p.speed_limit = 200.0 / 3.6
-
     else:
         p.speed_limit = 999.0
     return p
 
 
 
-def _compute_track_geometry(circuit) -> tuple:
-    """Compute ds, s, radius and signed curvature from circuit centerline."""
-    x = circuit.centerline_x
-    y = circuit.centerline_y
+def _driving_line(circuit) -> tuple:
+    """Racing-line (x, y) for the circuit, cached on the circuit object.
+
+    Falls back to the centerline when the circuit lacks boundary channels.
+    The line depends only on track geometry, so it is computed once and
+    reused across the many solver calls of an optimization sweep.
+    """
+    cached = getattr(circuit, "_racing_line_xy", None)
+    if cached is not None:
+        return cached
+
+    x, y = circuit.centerline_x, circuit.centerline_y
+    have_bounds = all(
+        getattr(circuit, attr, None) is not None and len(getattr(circuit, attr)) == len(x)
+        for attr in ("left_boundary_x", "left_boundary_y",
+                     "right_boundary_x", "right_boundary_y")
+    )
+    if have_bounds:
+        from src.tracks.racing_line import compute_racing_line
+        center = np.column_stack([x, y])
+        left = np.column_stack([circuit.left_boundary_x, circuit.left_boundary_y])
+        right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
+        # Closed loop when the ends nearly meet.
+        closed = bool(np.hypot(x[0] - x[-1], y[0] - y[-1]) < 5.0)
+        rl = compute_racing_line(center, left, right, closed=closed)
+        result = (rl.x, rl.y)
+    else:
+        result = (np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+
+    try:
+        circuit._racing_line_xy = result
+    except (AttributeError, TypeError):
+        pass  # circuit may be immutable; recompute next call
+    return result
+
+
+def _compute_track_geometry(circuit, path: Optional[tuple] = None) -> tuple:
+    """Compute ds, s, radius and signed curvature from a driving line.
+
+    Args:
+        circuit: Circuit with centerline (and optionally boundaries).
+        path: Optional (x, y) driving line; defaults to the centerline.
+    """
+    if path is not None:
+        x, y = path
+    else:
+        x = circuit.centerline_x
+        y = circuit.centerline_y
     n = len(x)
 
     ds = np.zeros(n)
@@ -516,6 +562,11 @@ def _bias_limited_decel(
 
 _G = 9.81           # [m/s²]
 _RHO_AIR = 1.225    # [kg/m³]
+# Output sign of the lateral-accel channel: +1 → positive Ay = left turn
+# (kappa > 0). Flip to -1.0 if a reference logger uses the opposite mount.
+_AY_SIGN = 1.0
+# Convergence tolerance for the qualifying flying-lap periodic v0 [m/s].
+_QUALI_V0_TOL_MS = 0.3
 # Tyre load sensitivity: relative grip loss per unit of relative lateral
 # load transfer on an axle (Pacejka 2012, load-sensitivity of mu).
 # Calibrated against the validated lap-time windows (Cascavel 76-82 s,
@@ -1304,25 +1355,25 @@ def run_simulation(
     torque_map_rpm = params_eff.engine.torque_curve_rpm
     torque_map_nm  = params_eff.engine.torque_curve_nm
 
-    x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit)
+    driving_path = _driving_line(circuit) if getattr(config, "use_racing_line", False) else None
+    x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit, driving_path)
 
     mu          = params_eff.tire.friction_coefficient
     temp_ini    = config.track_temperature_c + 5.0
     p_tyre_cold = config.setup.tyre_pressure_avg_front
 
-    if config.is_qualifying():
-        v0 = 10.0
-    elif config.is_flying_lap():
+    if config.is_flying_lap():
         v0 = config.v_entry_kmh / 3.6
-    else:
+    elif config.is_standing_start():
         v0 = 0.0
+    else:  # qualifying — seed for the periodic fixed-point below
+        v0 = 10.0
 
-    # No pre-lap: the validation windows (VW 31320 Cascavel 76-82 s,
-    # Interlagos 125-132 s) were calibrated with the lap starting from the
-    # mode's nominal v0 and ambient tyre state. A convergence pre-lap
-    # changes the simulation regime (v0 ~ top of the previous lap, tyres
-    # pre-heated) and must not be reintroduced without re-validating
-    # against real telemetry.
+    # Tyres still start at ambient state (no thermal pre-lap): the validation
+    # windows were calibrated cold, and a thermal warm-up must not be
+    # reintroduced without re-validating vs real telemetry. The ENTRY SPEED,
+    # however, now uses the flying-lap periodic boundary condition for
+    # qualifying (below) instead of the old cold v0 = 10 m/s (~36 km/h).
     if config.is_standing_start():
         raw = _run_standing_start(
             p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
@@ -1334,17 +1385,47 @@ def run_simulation(
             torque_map_nm=torque_map_nm,
         )
     else:
-        raw = _run_ggv_solver(
-            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-            mu=mu, v0=v0,
-            temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-            torque_map_rpm=torque_map_rpm,
-            torque_map_nm=torque_map_nm,
-        )
+        def _ggv(v_start: float) -> dict:
+            return _run_ggv_solver(
+                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+                mu=mu, v0=v_start,
+                temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
+                torque_map_rpm=torque_map_rpm,
+                torque_map_nm=torque_map_nm,
+            )
+
+        raw = _ggv(v0)
+        if config.is_qualifying() and getattr(config, "use_flying_lap_start", False):
+            # Flying-lap periodic boundary condition: a qualifying lap is a
+            # closed loop, so the speed crossing the start/finish line equals
+            # the speed leaving it on the identical previous lap. Fixed-point
+            # iterate v0 -> v_profile[-1] (a handful of passes converge, as it
+            # is the same track point). Removes the unphysical ~36 km/h launch
+            # that made sector 1 a slow climb.
+            #
+            # OFF by default: on the Cascavel anchor it cuts the lap ~4.5 s
+            # (80.7 -> 76.2), overshooting the real 1:19.5 pole by ~3.3 s
+            # because mu was co-calibrated with the cold slow start (same knot
+            # as use_racing_line). Enable only alongside a mu recalibration
+            # validated vs .xrk — see SPM P0b.
+            for _ in range(5):
+                v_end = float(raw["v_profile"][-1])
+                if abs(v_end - v0) < _QUALI_V0_TOL_MS:
+                    break
+                v0 = v_end
+                raw = _ggv(v0)
 
     lap_time = raw["time_profile"][-1]
     v_ms     = raw["v_profile"]
     a_long   = raw["a_long"]
+
+    # Sign the lateral-accel channel by turn direction (kappa > 0 = left).
+    # The solver only ever needs |a_lat| (grip is a friction circle), so
+    # signing the OUTPUT channel leaves lap time and every grip term
+    # untouched — it just makes the G-G diagram bilateral and lets the .xrk
+    # overlay compare left vs right corners. Convention: + = left, which
+    # matches the Copa Truck AiM loggers (LateralAcc corr +0.93 vs v*yaw).
+    a_lat_signed = _AY_SIGN * np.sign(kappa) * np.abs(raw["a_lat"])
 
     # Calculate instantaneous maximum deceleration capacity at each point for brake_pct
     a_decel_max = np.zeros(n)
@@ -1385,7 +1466,7 @@ def run_simulation(
         time              = raw["time_profile"],
         v_kmh             = v_ms * 3.6,
         ax_long_g         = a_long / 9.81,
-        ay_lat_g          = raw["a_lat"] / 9.81,
+        ay_lat_g          = a_lat_signed / 9.81,
         throttle_pct      = throttle,
         brake_pct         = brake,
         steering_deg      = raw["steering_deg"],
@@ -1396,7 +1477,7 @@ def run_simulation(
         tyre_pressure_bar = raw["tyre_pressure"],
         fuel_used_l       = raw["fuel_acum"],
         _a_long_ms2       = a_long,
-        _a_lat_ms2        = raw["a_lat"],
+        _a_lat_ms2        = a_lat_signed,
         front_slip_angle_deg = raw["front_slip_angle_deg"],
         rear_slip_angle_deg  = raw["rear_slip_angle_deg"],
     )
@@ -1462,6 +1543,8 @@ def run_bicycle_model(
         track_temperature_c=effective_track_temp,
         tyre_compound="slick_dry",
         export_driver_inputs=True,
+        use_racing_line=bool(config.get("use_racing_line", False)),
+        use_flying_lap_start=bool(config.get("use_flying_lap_start", False)),
     )
     # Propagate the vehicle's cold tyre pressure into the setup so the
     # pressure input actually reaches the solver (hot-pressure trace and

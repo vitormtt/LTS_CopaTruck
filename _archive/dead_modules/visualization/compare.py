@@ -44,16 +44,16 @@ def _parse_uploaded_csv(uploaded) -> dict | None:
 
 
 def compare_page() -> None:
-    st.header("📊 Compare Telemetry — CSV Overlay")
+    st.header("Compare telemetry")
     init_session_state()
-    
+
     st.caption(
-        "Upload one or more CSV or AiM (.xrk / .xrz) telemetry files (exported from the simulator, "
-        "or MoTeC / PiToolbox) and overlay them against the current simulation results."
+        "Upload CSV or AiM (.xrk / .xrz) files exported from the simulator, "
+        "MoTeC or Pi Toolbox and overlay them against the current run."
     )
 
     uploaded_files = st.file_uploader(
-        "Upload Telemetry Files (.csv, .xrk, .xrz):",
+        "Telemetry files (.csv, .xrk, .xrz)",
         type=["csv", "xrk", "xrz"],
         accept_multiple_files=True,
     )
@@ -83,9 +83,9 @@ def compare_page() -> None:
                     from src.tracks.telemetry_converter import convert_xrk_to_csv
                 except ImportError:
                     st.error(
-                        f"❌ Cannot read **{uf.name}**: the `libxrk` package is "
-                        "not installed. Install it with `pip install libxrk` "
-                        "to enable AiM .xrk/.xrz telemetry import."
+                        f"Cannot read **{uf.name}** — the `libxrk` package is "
+                        "not installed. Run `pip install libxrk` to enable "
+                        "AiM .xrk/.xrz telemetry import."
                     )
                     continue
 
@@ -98,13 +98,13 @@ def compare_page() -> None:
                 try:
                     meta = convert_xrk_to_csv(temp_xrk_path, temp_csv_path)
                     st.success(
-                        f"⚡ Converted **{uf.name}** | Driver: **{meta['driver']}** | "
-                        f"Venue: **{meta['venue']}** | Lap: **{meta['lap_number']}** | "
-                        f"Time: **{meta['lap_time_s']:.3f}s**"
+                        f"Converted **{uf.name}** · driver **{meta['driver']}** · "
+                        f"venue **{meta['venue']}** · lap **{meta['lap_number']}** · "
+                        f"time **{meta['lap_time_s']:.3f} s**"
                     )
                     parsed = _parse_uploaded_csv(temp_csv_path)
                 except Exception as e:
-                    st.error(f"❌ Error converting **{uf.name}**: {e}")
+                    st.error(f"Error converting **{uf.name}**: {e}")
                     parsed = None
                 finally:
                     if os.path.exists(temp_xrk_path):
@@ -115,30 +115,30 @@ def compare_page() -> None:
                 parsed = _parse_uploaded_csv(uf)
                 
             if parsed is None:
-                st.warning(f"⚠️ Could not parse **{uf.name}**")
+                st.warning(f"Could not parse **{uf.name}**")
                 continue
             datasets.append((uf.name, parsed))
 
     # --- Top 3 setups comparison ---
     all_runs = st.session_state.get("all_results", [])
     if len(all_runs) > 0:
-        st.subheader("🏆 Top 3 Simulated Laps Comparison")
+        st.subheader("Top 3 simulated laps")
         sorted_runs = sorted(all_runs, key=lambda x: x["lap_time"])[:3]
         cols = st.columns(len(sorted_runs))
         from src.visualization.components.helpers import fmt_laptime
         
         for rank, (col, run) in enumerate(zip(cols, sorted_runs)):
             with col:
-                st.markdown(f"### **#{rank + 1}** {run['label']}")
-                st.metric("Lap Time", fmt_laptime(run['lap_time']))
-                st.metric("Max Speed", f"{run['vmax']:.1f} km/h")
-                st.metric("Mean Speed", f"{run['vmean']:.1f} km/h")
-                st.metric("Fuel Burned", f"{run['fuel_L']:.2f} L")
-                st.metric("Tyre Temp", f"{run['tyre_temp']:.1f} °C")
+                st.markdown(f"### #{rank + 1} — {run['label']}")
+                st.metric("Lap time", fmt_laptime(run['lap_time']))
+                st.metric("Max speed", f"{run['vmax']:.1f} km/h")
+                st.metric("Mean speed", f"{run['vmean']:.1f} km/h")
+                st.metric("Fuel burned", f"{run['fuel_L']:.2f} L")
+                st.metric("Tyre temp", f"{run['tyre_temp']:.1f} °C")
         st.markdown("---")
 
     if len(datasets) < 1:
-        st.info("💡 Run a simulation first or upload at least one telemetry CSV/XRK file.")
+        st.info("Run a simulation or upload at least one telemetry file to compare.")
         return
 
     colors = px.colors.qualitative.Plotly

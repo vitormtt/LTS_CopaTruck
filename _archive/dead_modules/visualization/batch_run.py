@@ -21,25 +21,21 @@ from .helpers import (
 
 
 def batch_run_page() -> None:
-    st.header("📊 Batch Simulation")
+    st.header("Batch simulation")
+    st.caption("Run consecutive laps for multiple vehicles on the loaded track.")
     init_session_state()
 
     if st.session_state.circuit is None:
-        st.warning("⚠️ Select a track in the 'Track' tab first.")
+        st.warning("Select a track on the Track page first.")
         return
 
-    st.caption(
-        "Select multiple vehicles to run consecutive simulations on the loaded track. "
-        "The comparison table and summary statistics will be generated automatically."
-    )
-
-    st.info(f"✓ Track Loaded: **{st.session_state.circuit_meta['name']}**")
+    st.metric("Track", st.session_state.circuit_meta['name'])
 
     # 1. Multi-vehicle selection
     all_vehicles = list_vehicles()
     selected_vids = []
-    
-    st.subheader("1. Select Vehicles to Simulate")
+
+    st.subheader("1. Vehicles")
     col1, col2 = st.columns(2)
     
     vehicle_ids = list(all_vehicles.keys())
@@ -55,15 +51,15 @@ def batch_run_page() -> None:
                 selected_vids.append(vid)
 
     # 2. Simulation Mode
-    st.subheader("2. Simulation Mode")
+    st.subheader("2. Session mode")
     sim_mode = st.radio(
-        "Select Mode:",
+        "Mode",
         ["Qualifying (Flying Lap)", "Standing Start (Race Start)"],
         horizontal=True
     )
 
     if len(selected_vids) == 0:
-        st.warning("⚠️ Please select at least one vehicle.")
+        st.warning("Select at least one vehicle to run a batch.")
         return
 
     force_rerun = st.checkbox(
@@ -74,7 +70,7 @@ def batch_run_page() -> None:
 
     st.markdown("---")
 
-    if st.button("🚀 Run Batch Simulation", width="stretch", type="primary"):
+    if st.button("Run batch", width="stretch", type="primary"):
         results_list = []
         progress_bar = st.progress(0, text="Initializing simulations...")
 
@@ -126,10 +122,10 @@ def batch_run_page() -> None:
                     "Fuel Consumed (L)": float(r["consumo"][-1]),
                     "Final Tyre Temp (°C)": float(r["temp_pneu"][-1]),
                     "Compute Time (s)": dt,
-                    "Source": "cache ⚡" if (not force_rerun and dt < 0.05) else "solver",
+                    "Source": "cache" if (not force_rerun and dt < 0.05) else "solver",
                 })
             except Exception as e:
-                st.error(f"❌ Failed to simulate {all_vehicles[vid]}: {e}")
+                st.error(f"Failed to simulate {all_vehicles[vid]}: {e}")
                 results_list.append({
                     "Vehicle": all_vehicles[vid],
                     "Lap Time": float("inf"),
@@ -164,7 +160,7 @@ def _render_batch_results(df: pd.DataFrame, elapsed: float) -> None:
     df_valid = df[df["Lap Time"] < float("inf")].copy()
 
     if df_valid.empty:
-        st.error("❌ All simulations failed to run.")
+        st.error("All simulations failed to run.")
         return
 
     # Format lap time display column
@@ -173,11 +169,11 @@ def _render_batch_results(df: pd.DataFrame, elapsed: float) -> None:
     # Display best run success
     best_row = df_valid.loc[df_valid["Lap Time"].idxmin()]
     st.success(
-        f"✅ Batch simulation completed in {elapsed:.2f}s! "
-        f"Winner: **{best_row['Vehicle']}** with lap time of **{best_row['Lap Time Formatted']}**."
+        f"Batch complete in {elapsed:.2f} s. "
+        f"Fastest: **{best_row['Vehicle']}** — **{best_row['Lap Time Formatted']}**."
     )
 
-    st.subheader("📊 Performance KPI Comparison")
+    st.subheader("Performance KPI comparison")
 
     # Format columns for display
     df_display = df_valid[[

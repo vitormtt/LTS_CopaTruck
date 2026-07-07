@@ -41,7 +41,7 @@ def test_roundtrip_preserves_all_mapped_keys():
 
 def test_roundtrip_rebuilds_equivalent_vehicle():
     """from_solver_dict(roundtrip(to_solver_dict(vp))) must equal vp physically."""
-    vp = get_vehicle_by_id("scania_r480")
+    vp = get_vehicle_by_id("volkswagen_31320")
     back = _roundtrip(vp.to_solver_dict())
     back["name"] = vp.name
     rebuilt = VehicleParams.from_solver_dict(back)

@@ -1,17 +1,216 @@
 # SARU Project Memory — LapTimeSimulator_CopaTruck
 
-> Última atualização: 2026-07-03
+> Última atualização: 2026-07-05
 > LER ao iniciar. ATUALIZAR ao final de cada tarefa.
+
+---
+
+## 0b. Sessão 2026-07-06 (parte 3) — triagem 13 itens produto + Batch A viz
+
+- **Triagem completa dos 13 pontos do Vitor** (diagnóstico c/ evidência rodada). Ordem
+  aprovada: (A) viz sign-fix → (B) física guardrail → (C) épico warmup/pneu → (D) setores-curva.
+- **Batch A APLICADO (uncommitted, 164 testes verdes)** — zero guardrail (lap idêntico 80.69):
+  - **#4/#8** `a_lat` do output agora **assinado** por `sign(kappa)` (`lap_time_solver.py`
+    `_AY_SIGN=1.0`, +=esquerda). GG bilateral; casa .xrk (corr ay×v·yaw **+0.93**). Magnitude/
+    lap intactos. Baseline regressão: só `ay_lat_g` atualizado (guard provou resto byte-idêntico;
+    Interlagos pico lateral = curva à direita → vira `min`).
+  - **#5** marcha em **eixo secundário** step (fim do `gear×1000` no eixo de RPM) — `results.py`.
+  - **#6** gráficos agrupados em `st.tabs` [Track&dynamics / Brake&fuel / Chassis&driver /
+    Sectors]. Lib p/ workspace arrastável real (futuro) = `streamlit-elements`.
+  - **#11** overlay sim no race report agora bilateral (mesma raiz #4). Erro exato pendente Vitor.
+  - **#12** já existia (radio Grid/DE). **#13** ARB precisa 3DOF (Fase 2).
+- **⚠️ Possível sessão paralela**: porta 8501 ocupada por server de OUTRO chat neste repo.
+  Não competi por porta (regra 1-sessão-por-repo). Verificar antes de continuar escritas.
+### Batch B (física) — measure-first mudou o diagnóstico
+- **#2 qualy v0**: bug real (hardcode `v0=10`=36 km/h). Fix = **BC periódica de flying lap**
+  (`use_flying_lap_start`, default OFF, igual `use_racing_line`). Ligado: Cascavel 80.69→76.16.
+- **#9 quedas em reta**: **NÃO é bug**. Cascavel+Interlagos: 1 dip ínfimo/volta; upshifts têm Δv
+  POSITIVO. Powertrain/gearing OK. Zero mudança de código.
+- **#1 freio**: sliders funcionam fraco (bias 40→70%=0.2s; force/decel saturam no default). O
+  "não funcional" real = `brake_hardware.py` unwired + bias só importa com modelo de **travamento**
+  = dobra no **#10** (Batch C). Ponto-massa grip-limited: freio quase não move lap (correto).
+
+### CALIBRAÇÃO P0b — findado o nó (decisão Vitor: SEGURA)
+- Recalibrei µ vs âncora Cascavel COM flying-lap+racing line ON, validando **traço** vs .xrk real
+  (FG04 Superpole 79.96s). **Dados escolheram racing line** (RMSE 8.9 vs 13.9 km/h; µ físico).
+- **µ = 1.165** (era **1.6** = ficção) → Cascavel flying+racing **79.50s** ✓ (âncora), traço RMSE
+  8.9 km/h, vmax +4 (aero, follow-up). MAS **Interlagos = 136s** vs real 124.7 (**+11s**).
+- **Nó**: 1 µ físico não bate as 2 pistas. Interlagos "quer" µ=1.6 = fiction compensando o
+  **centerline ruidoso** (SPM: bloqueado). µ é do pneu (~1.15-1.3), não da pista → µ=1.165 correto.
+- **DECISÃO VITOR (2026-07-06)**: **SEGURA a recalibração** até **recapturar centerline do
+  Interlagos** dos GPS dos .xrk (`GPS Latitude/Longitude` presentes; reusar `generate_from_xrk.py`).
+  Aí as 2 pistas ancoram juntas com µ físico. µ fica 1.6, flags default-off por enquanto.
+- **Próximo**: recaptura Interlagos (ENU + spline periódica + boundaries) → re-rodar calibração.
+
+### Recaptura Interlagos — GPS probe → decisão TUM FTM (2026-07-06)
+- **Probe GPS (Andre Marques lap 1)**: extraí loop via `channels['GPS Latitude/Longitude']`
+  (timecodes próprios, 25 Hz; `extract_session`/merge quebra nesse .xrk — usar canal cru).
+  Loop 4241 m, fecha 0.6 m, Rmin ~25 m (0 pts <15 m = limpo). Com ele, **µ=1.165 (Cascavel)
+  ancora as 2 pistas**: Interlagos 122.3 (racing ON) / 124.85 (racing OFF) vs real 124.7 —
+  destravou o nó (era +11s). Provou que o centerline VELHO era o culpado.
+- **DECISÃO VITOR**: GPS de 1 volta = racing line encolhida + ruído, **não condiz com real**.
+  Segurar; **pesquisar metodologia** de reconstrução/validação (prompt em
+  `docs/research/PROMPT_track_reconstruction.md`, Vitor roda no Gemini/Perplexity).
+- **ACHADO forte**: repo já tem `TUMFTMDownloader` — `interlagos`→`SaoPaulo.csv` = **centerline
+  SURVEYED + larguras reais por ponto** (862 pts, **4300 m** vs real 4309, bbox 666×1048 ≈ real).
+  Download OK (testado). É a geometria de referência (mesma base do min-curvature TUM já no repo).
+- **Plano pós-pesquisa**: geometria = TUM FTM (+ OSM fallback); GPS multi-volta (Interlagos 5,
+  Cascavel 13) só p/ validar traço; alinhar frames (Procrustes/ICP por arc-length); µ calibra
+  contra lap+traço. Provável recapturar Cascavel igual (centerline atual dá 85s racing-off, infiel).
+- **Estado**: NADA aplicado. µ=1.6, flags default-off, tracks originais intactos. `interlagos_gps.hdf5`
+  probe removido. Aguarda pesquisa do Vitor → então implementa pipeline TUM+validação.
+
+### HANDOFF 2026-07-06 (Vitor abriu OUTRA sessão — driver model) — DIREÇÃO p/ próxima sessão
+> ⚠️ **PARALLEL SESSION**: Vitor iniciou 2ª sessão neste repo (driver model). Regra 1-sessão/repo:
+> ESTA sessão parou de escrever após este handoff. Coordenar antes de editar em paralelo.
+- **Direção do Vitor (4 pontos) p/ a calibração de pista/µ**:
+  1. **Âncora = tempos da INTERNET por pista** (records/pole oficiais), não só o .xrk. Cascavel
+     79.505, Interlagos pole ~123.9. Levantar a tabela de tempos reais por pista do calendário.
+  2. **Usar arquivos de REGULAMENTO por pista** p/ entender situações/limites de corrida (speed
+     limit, pit, safety car, específicos do round). HOJE só existe `copa-truck-regulamento-tecnico-2025-.pdf`
+     (geral) + `regulation_validator.py` (veículo). **Falta**: regulamento suplementar por pista → localizar/criar.
+  3. **µ por pista CALCULADO do dado real TRATADO**, não back-fit de lap-time. Método: µ_tyre a partir
+     do pico de |ay| medido no .xrk, corrigido por aero/transferência. **PROBE FEITO**: Cascavel real
+     |ay| p95=1.06G p99=1.22G peak=1.38G → **confirma µ≈1.15-1.2** (bate com o 1.165 do lap-time). Este
+     é o cross-check que valida a calibração — fazer igual p/ Interlagos.
+  4. **DRIVER MODEL** (preocupação do Vitor "ta alucinando?"): hoje NÃO há driver model adaptativo —
+     é QSS "piloto perfeito" no limite de grip (`_driver_inputs_from_accel`: throttle binário, brake do
+     decel; segue centerline ou racing line min-curvature). Não alucina, mas é idealizado. Os GAPS do
+     driver model = #10 (travamento/slip → piloto tem que modular sem ABS), racing-line realista, e a
+     adaptação de linha ao setup. É a próxima fronteira (a 2ª sessão do Vitor).
+- **Pipeline alvo (pós-pesquisa)**: geometria TUM FTM `SaoPaulo.csv` (surveyed, 4300m, larguras reais) →
+  alinhar GPS multi-volta por arc-length (Procrustes/ICP) → boundaries reais → racing line TUM →
+  µ do dado real (ponto 3) + validar traço RMSE vs .xrk + âncora tempos internet (ponto 1).
+- **Commits desta sessão**: `d6e5818` (viz sign-fix Batch A) · `7ee53fc` (flag flying-lap) ·
+  `789af02` (prompt pesquisa + achados). Suíte 164 verde no último estado tocado.
+
+## 0. Sessão 2026-07-05 — branch `feature/claude-product-upgrade`
+
+- Working tree pré-sessão estava LIMPO vs HEAD (contaminação GT de 2026-07-02 já
+  descartada em algum momento; opção A da auditoria efetivada de facto). Asserts
+  Cascavel 76–82 s vigentes; h_cg 1.1 nos presets.
+- **Commits na branch**:
+  - `feat(params): parameterize regulation speed governor` — `speed_limit_kmh` em
+    `VehicleParams` (0.0 = fallback legado: Truck→200 km/h, resto ilimitado);
+    `_build_flat_params` respeita override. 6 testes novos.
+  - `feat(analysis): add sim-vs-reference telemetry overlay page` — `src/analysis/overlay.py`
+    (puro: resample grade comum 5 m, Δv, Δt cumulativo, RMSE) + página Streamlit
+    "Telemetry Overlay" (upload CSV `distance_m,v_kmh`, métricas, 3 gráficos, top-5
+    trechos divergentes). 5 testes novos.
+- **Suíte: 139 passam** (125 + 6 governor + 5 overlay + 3 pré-existentes de coleta).
+- **Validador de regulamento re-rodado**: 3/4 non-compliant (VW/Scania/Volvo: massa,
+  wheelbase 4.4–4.7 m, largura); `vw_31320_copa_truck_racing_copy_correto` **COMPLIANT**
+  → candidato a baseline "aproximação por regulamento". Corrigir os 3 muda lap ≥0.5 s →
+  precisa OK do Vitor (guardrail de calibração).
+- **Backlog produto (ordem proposta)**: (1) ~~presets → regulamento~~ ✅ FEITO;
+  (2) Pacejka MF simplificado como `TireModel` opcional (diferencial vs OptimumLap);
+  (3) deploy hosted + auth (DISTRIBUTION_OPTIONS opção 1; Streamlit + basic auth em VPS);
+  (4) ~~conversor .xrk→CSV p/ overlay~~ ✅ overlay já aceita .xrk direto; (5) otimização de linha = V2.
+
+### Sessão 2026-07-05 (parte 2) — presets + UI
+- **Frota consolidada**: Scania/Volvo REMOVIDOS (diferenciação sem fonte + non-compliant CBA).
+  Único preset = `volkswagen_31320` = baseline de regulamento (m=4950 kg, wb 3.65 m, gov 200 km/h,
+  compliant). Cascavel 80.69 s / Interlagos 133.17 s (uncalibrated, honesto). Baselines de
+  regressão regeneradas (3 casos VW: cascavel qual+standing, interlagos qual). Testes agora
+  ASSERTAM compliance CBA de todo preset shipped.
+- **Overlay .xrk**: `telemetry_converter.list_laps()` + página aceita upload .xrk (lap picker,
+  fastest pré-selec) OU CSV multi-volta (split por reset de distância). 10 testes no parser.
+- **UI/UX** (agente architect): `.streamlit/config.toml` dark motorsport (bg #11141a, accent
+  laranja #f28a1f), headers uniformizados, sidebar com branding SARU, `docs/UI_UX_AUDIT.md`
+  com backlog P1/P2/P3. Verificado rodando (`.venv/bin/streamlit run ...`, JSON fallback,
+  sim Interlagos OK, governador 200 km/h ativo). **Suíte: 143 verdes.**
+- **P1 backlog UI (não aplicado)**: (P1-01) results.py 624 linhas → `st.tabs`
+  [Overview/Dynamics/Driver/Sectors] ~2d; (P1-02) `theme.py` c/ paleta Plotly unificada ~4h
+  (hoje traces ainda usam cores default Plotly); (P1-03) fluxo guiado Parameters→Track→Run ~1d.
+- **Docker**: NÃO subir compose deste repo — conflita 5432 c/ saru-os-postgres (rodando).
+  App roda 100% JSON fallback local. Deploy real = VPS isolada (DISTRIBUTION_OPTIONS opção 1).
+- **Branch**: `feature/claude-product-upgrade` (não mergeada em develop — aguarda OK).
+
+### Sessão 2026-07-06 (parte 2) — Épico full-physics + Fase 1 racing line
+- **VIRADA registrada** (§1, §5): full physics IN SCOPE aqui; QSS simples → Hase.
+  Plano faseado: `docs/FULL_PHYSICS_PLAN.md` (F1 racing line ✅ · F2 3DOF · F3 freio 3 níveis ·
+  F4 viz solver · F5 pistas calendário).
+- **Fase 1 — Racing line ✅**: `src/tracks/racing_line.py` (min-curvature via bounded LS
+  `lsq_linear` sobre offset lateral α∈[-1,1] dentro das boundaries HDF5; metodologia aberta TUM).
+  Solver segue o traçado via flag `use_racing_line` (default OFF → QSS baseline/Hase intacto,
+  157 testes verdes). Toggle na página Track + traçado desenhado no mapa (laranja sólido sobre
+  centerline tracejada) — resolve o "driver só segue centerline" (ponto 6).
+- **GUARDRAIL — Δ medido (aguarda decisão Vitor)**:
+  - Cascavel 80.69 → **76.36s** (real pole 79.505 → agora **overshoot -3.1s**: µ estava
+    co-calibrado com a centerline pessimista).
+  - Interlagos 133.17 → **122.75s** (real Andre Marques 124.7 → de +7.5s de erro para ~-2s).
+    **Confirma: a centerline era a fonte dominante do erro de canais/lap.**
+  - **DECISÃO PENDENTE**: (a) tornar racing line o default + **recalibrar µ p/ reancorar
+    Cascavel em 79.5** (µ desce); (b) validar via overlay vs .xrk (traço de velocidade, não só lap).
+    Isso muda lap do default → precisa OK explícito (guardrail). Ferramenta de validação pronta.
+- **Próximas fases** (queued, tasks #8-11): 3DOF (ARB vivo), freio 3 níveis (simple/hardware/
+  térmico validado) + curva de bias, viz do solver, pistas do calendário (bloqueio de geometria).
+
+### Sessão 2026-07-06 — otimizador honesto, overlay+compare, ARB
+- **ARB no solver — FINDING (não é bug)**: ARB é **intrinsecamente inerte** no lap time num
+  solver ponto-massa QSS. No limite de curva o eixo carregado satura perto do mesmo piso de grip
+  independente do balanço de rigidez (testado: limite bicicleta + sensibilidade de carga por-roda
+  convexa — ambos deixaram ARB chapado). ARB afeta balanço **transiente** (turn-in/mid-corner) →
+  exige 14DOF (IP SARU, fora deste repo). Hacks revertidos, solver intacto (150 testes verdes).
+- **Otimizador honesto**: `optimization.py` agora busca só **asa × pressão** (os knobs que mexem
+  no lap). ARB/brake bias removidos da busca (inertes). Grid vira heatmap asa×pressão que **varia**
+  de verdade (Cascavel ótimo: wing 9 / 1.4 bar → **79.9 s**, vs pole real 79.505 s). Nota de roadmap
+  ARB→14DOF na página.
+- **Overlay = ferramenta única** (Compare aposentado, arquivado):
+  - Picker das 4 voltas reais bundled (`_quarantine/Perez-data/*.xrk`) + upload manual.
+  - Análise de delta (Δv, Δt cumulativo, RMSE, piores trechos) + **multi-canal** sim-vs-real
+    (Long-G, Lat-G, throttle, brake) dos canais do .xrk. Verificado rodando: Andre Marques
+    Interlagos, Δt sim +7.5 s (centerline ruidoso, esperado).
+- **Batch aposentado** (arquivado): redundante com o sweep da Optimization.
+- **Router final (6 páginas)**: Parameters · Track · Simulation · Results · Telemetry Overlay · Optimization.
+- **PENDENTE P0b (calibração honesta toward real)**: usar o overlay vs Cascavel real (âncora
+  1:19.505) p/ identificar onde o sim perde/ganha e ajustar µ/aero/torque DENTRO do regulamento.
+  Muda lap ≥0.5 s → reportar Δ e ter OK do Vitor ANTES de commitar (guardrail). Ferramenta agora
+  pronta (picker + multi-canal). Cascavel é a âncora; Interlagos bloqueado (traçado ruidoso).
+
+### Sessão 2026-07-05 (parte 3) — auditoria params + P1-02 + freio
+- **P1-02 (paleta Plotly)** ✅ `src/visualization/theme.py`: template dark `lts_dark`
+  (default global) + tokens semânticos (ACCENT #f28a1f/REFERENCE/POSITIVE/NEGATIVE/LATERAL...).
+  ~25 cores hardcoded trocadas em results/overlay/track/optimization/torque_curve. Plots agora
+  fundo transparente dark, sem cara de "Plotly default". 152 testes verdes.
+- **AUDITORIA de linkage frontend↔solver (resposta ao Vitor)**:
+  - **Nenhum param exposto no frontend é órfão** — todos chegam ao solver. Renames OK:
+    `wheel_radius`→`r_wheel`, `max_torque`→`T_max` (fallback analítico; torque_curve manda
+    quando presente, `_engine_torque` L578).
+  - **Params MORTOS** (serializam em to_solver_dict mas solver ignora — sobras do
+    ENDURANCE_THERMAL removido): `disc_mass_kg`, `disc_specific_heat`, `disc_convection`,
+    `disc_area_m2`, `disc_initial_temp_c`, `disc_thermal_efficiency`, `fade_onset_temp_c`,
+    `fade_full_temp_c`, `fade_min_factor`, `downshift_rpm`, `upshift_rpm`. NÃO expostos no
+    frontend. **Pendência**: podar de `BrakeParams`/`to_solver_dict`/`from_solver_dict`
+    (cuidado: `test_vehicle_mapping` roundtrip). Baixo risco, cosmético.
+  - `k_roll` total: redundante (front+rear é que o solver usa; total é dropado).
+- **Freio a partir de hardware (ponto 2)**: `src/vehicle/brake_hardware.py` — cadeia de
+  Limpert (`clamp = P×A×n; torque = 2·μ_pad·clamp·R_disc; F = torque/R_wheel`), pura, 7 testes.
+  **NÃO wirado no solver** — precisa números reais (prompt em `docs/research/PROMPT_brake_hardware.md`,
+  Vitor roda) + aprovação (muda lap ≥0.5 s, guardrail). Hoje solver segue usando `max_brake_force`
+  slider + cap `max_decel`, ambos batendo no limite físico de grip via `_bias_limited_decel`.
+- **Docker (esclarecimento)**: NÃO estão misturados. São 2 projetos docker independentes —
+  `copa_truck_db`/`copa_truck_app` (este repo) vs `saru-os-*` (platform/saru-os). Única
+  sobreposição: ambos default postgres na porta host 5432. saru-os roda agora e ocupa 5432;
+  subir o compose deste repo sem `.env DB_PORT=5433` colide. Não é confusão de projeto,
+  é colisão de porta default. App roda 100% JSON fallback local (não precisa do compose p/ demo).
 
 ---
 
 ## 1. Identidade
 
-- **Produto**: Lap time simulator Copa Truck — **MVP Simples / Acadêmico (Pérez)**
+> ⚠️ **VIRADA ESTRATÉGICA 2026-07-06 (decisão explícita do Vitor)**: o desacoplamento
+> MVP de 30/jun foi **REVERTIDO**. lts-copatruck passa a ser o **sim AVANÇADO** (física
+> completa: racing line, 3DOF, freio modelado hardware+térmico validado). O **QSS ponto-massa
+> simples atual** é que vira o **produto do Hase** (mais simples). A regra "não inserir 3DOF/
+> térmico aqui" está **CANCELADA** — ver §5. Motivo: modelo simples não dá realismo (ARB inerte,
+> centerline errada, freio raso); Vitor quer o sim que se aproxima do real p/ validar vs .xrk.
+
+- **Produto**: Lap time simulator Copa Truck — **Sim avançado (full physics)** ⟵ era MVP simples
 - **GitHub**: `vitormtt/LTS_CopaTruck` — **NUNCA deletar** (repo ativo do produto)
 - **Local**: `~/Projects/SARU/partnerships/lts-copatruck/`
-- **Branch ativa**: `develop`
-- **Parceria**: Pérez (pós-graduação) — O repositório foi simplificado e desacoplado do `saru-core` para ser entregue como MVP sem IP proprietária avançada.
+- **Branch ativa**: `feature/claude-product-upgrade`
+- **Parceria**: Pérez (pós-graduação). O QSS simples derivado deste repo vai p/ o Hase.
 
 ---
 
@@ -77,8 +276,13 @@ src/
 
 1. **Nunca alterar two-pass solver** sem cross-validation contra lap times conhecidos.
 2. **Testes antes de commit** — Garantir que 100% da suíte continue passando localmente isolada.
-3. **Não inserir IP da SARU** — Modelos 3DOF, 14DOF e térmicos avançados **não** devem ser colocados neste repositório.
+3. ~~**Não inserir IP da SARU** — Modelos 3DOF, 14DOF e térmicos~~ **CANCELADA 2026-07-06**
+   (virada estratégica §1). 3DOF, racing line e freio térmico agora são **IN SCOPE** aqui.
+   14DOF transiente segue no saru-core (não é foco deste repo). Físicas avançadas entram
+   por trás de flags/seletor de modelo (o QSS simples continua selecionável = base do Hase).
 4. **Params físicos**: todos via VehicleParams JSON ou HDF5, nunca hardcode.
+5. **Guardrail de calibração vale mais que nunca**: toda mudança de física que mexe lap ≥0.5s
+   → reportar Δ + overlay vs .xrk real ANTES de commitar. Épico não dispensa validação.
 
 ---
 

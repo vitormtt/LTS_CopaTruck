@@ -25,6 +25,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.vehicle.fleet import get_vehicle_by_id
+from src.visualization.theme import ACCENT, REFERENCE
 
 _MIN_POINTS = 2
 
@@ -117,15 +118,15 @@ def render_torque_curve_editor(vp, vehicle_id: str) -> Tuple[List[float], List[f
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=rpm_dense, y=trq_dense, mode="lines", name="Torque",
-        line=dict(color="firebrick", width=2),
+        line=dict(color=ACCENT, width=2),
     ))
     fig.add_trace(go.Scatter(
         x=rpm_pts, y=trq_pts, mode="markers", name="Edit points",
-        marker=dict(color="firebrick", size=9, symbol="circle-open"),
+        marker=dict(color=ACCENT, size=9, symbol="circle-open"),
     ))
     fig.add_trace(go.Scatter(
         x=rpm_dense, y=pwr_dense, mode="lines", name="Power",
-        line=dict(color="royalblue", width=2, dash="dash"), yaxis="y2",
+        line=dict(color=REFERENCE, width=2, dash="dash"), yaxis="y2",
     ))
     fig.add_annotation(
         x=rpm_dense[peak_idx], y=pwr_dense[peak_idx], yref="y2",

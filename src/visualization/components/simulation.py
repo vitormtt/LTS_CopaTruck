@@ -20,26 +20,29 @@ from .helpers import (
 
 
 def simulacao_page() -> None:
-    st.header("▶️ Run Simulation")
+    st.header("Simulation")
+    st.caption("Single lap or parameter sweep against the saved setup.")
     init_session_state()
 
     if st.session_state.circuit is None:
-        st.warning("⚠️ Select a track in the 'Track' tab first.")
+        st.warning("Select a track on the Track page first.")
         return
     if st.session_state.vehicle_params is None or not st.session_state.params_saved:
-        st.warning("⚠️ Configure and **save** a vehicle in the 'Parameters' tab first.")
+        st.warning("Configure and save a vehicle on the Parameters page first.")
         return
 
     mode = st.session_state.get("confirmed_mode") or st.session_state.get("vehicle_mode", "Copa Truck")
     vp = st.session_state.vehicle_params
-    
-    st.info(f"✓ Track Loaded: **{st.session_state.circuit_meta['name']}** | Vehicle Mode: **{mode}** ({vp.name})")
 
-    tab_single, tab_sweep = st.tabs(["Single Run", "Parameter Sweep (Sensitivity Analysis)"])
+    c1, c2 = st.columns(2)
+    c1.metric("Track", st.session_state.circuit_meta['name'])
+    c2.metric("Vehicle", f"{vp.name}", help=f"Category: {mode}")
+
+    tab_single, tab_sweep = st.tabs(["Single run", "Parameter sweep"])
 
     with tab_single:
         sim_mode_label = st.radio(
-            "Simulation Mode:",
+            "Session mode",
             ["Qualifying", "Standing Start"],
             horizontal=True,
             key="sim_mode_select",
@@ -52,17 +55,17 @@ def simulacao_page() -> None:
         ambient_temp_c = 25.0
 
         col_play, col_reset = st.columns(2)
-        
+
         with col_reset:
-            if st.button("🗑️ Clear Results History", width="stretch"):
+            if st.button("Clear results history", width="stretch"):
                 st.session_state.resultados_prontos = False
                 st.session_state.resultados = None
                 st.session_state.all_results = []
                 st.rerun()
 
         with col_play:
-            if st.button("▶ Run Simulation", width="stretch", type="primary"):
-                with st.spinner("🔄 Running QSS solver (two-pass dynamic equations)..."):
+            if st.button("Run simulation", width="stretch", type="primary"):
+                with st.spinner("Running QSS solver (two-pass dynamic equations)..."):
                     # Build solver dictionary
                     params_dict = vp.to_solver_dict()
                     params_dict.setdefault("track_width", 2.5)
@@ -120,10 +123,10 @@ def simulacao_page() -> None:
                         )
 
                         st.success(
-                            f"✓ Lap Completed: **{fmt_laptime(result['lap_time'])}** — "
-                            f"Vmax: **{float(np.max(result['v_profile'])*3.6):.1f} km/h** — "
-                            f"Compute time: {elapsed:.3f}s"
-                            + (" — saved to history 🗄️" if saved else "")
+                            f"Lap completed: **{fmt_laptime(result['lap_time'])}** · "
+                            f"Vmax **{float(np.max(result['v_profile'])*3.6):.1f} km/h** · "
+                            f"compute time {elapsed:.3f} s"
+                            + (" · saved to history" if saved else "")
                         )
                     except Exception as exc:
                         import traceback
@@ -131,11 +134,11 @@ def simulacao_page() -> None:
                         st.code(traceback.format_exc())
 
     with tab_sweep:
-        st.subheader("🛠️ Setup Parameter Sweep")
-        st.write("Run multiple simulations to visualize the impact of parameter changes on lap time using Parallel Coordinates.")
-        
+        st.subheader("Setup parameter sweep")
+        st.caption("Run a grid of simulations to visualise lap-time sensitivity on the Results page.")
+
         sim_mode_sweep = st.radio(
-            "Sweep Simulation Mode:",
+            "Session mode",
             ["Qualifying", "Standing Start"],
             horizontal=True,
             key="sim_mode_sweep_select",
@@ -147,12 +150,12 @@ def simulacao_page() -> None:
 
         col_sw1, col_sw2 = st.columns(2)
         with col_sw1:
-            cg_height_range = st.slider("CG Height Range (h_cg) [m]", 0.8, 1.5, (1.0, 1.2), 0.1)
+            cg_height_range = st.slider("CG height range (m)", 0.8, 1.5, (1.0, 1.2), 0.1)
         with col_sw2:
-            aero_balance_range = st.slider("Aero Balance Range (CoP) [% Front]", 30, 70, (40, 60), 5)
-            
-        if st.button("▶ Run Batch Sweep", type="primary", use_container_width=True):
-            with st.spinner("🔄 Running Grid Search..."):
+            aero_balance_range = st.slider("Aero balance (CoP, % front)", 30, 70, (40, 60), 5)
+
+        if st.button("Run parameter sweep", type="primary", use_container_width=True):
+            with st.spinner("Running grid search..."):
                 import itertools
                 sweep_results = []
                 
@@ -199,4 +202,7 @@ def simulacao_page() -> None:
                 
                 if sweep_results:
                     st.session_state.sweep_results_df = pd.DataFrame(sweep_results)
-                    st.success(f"✓ Sweep completed ({len(sweep_results)} runs). Check the 'Results' tab for the Parallel Coordinates Plot!")
+                    st.success(
+                        f"Sweep completed — {len(sweep_results)} runs. "
+                        "Open the Results page for the parallel-coordinates plot."
+                    )

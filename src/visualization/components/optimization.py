@@ -1,17 +1,26 @@
 """
 Setup optimization page component for the Streamlit UI.
 
-Two optimizers over the VehicleSetup space (ARB front/rear, wing,
-tyre pressure, brake bias):
-- Grid Search: exhaustive over the discrete ARB/wing ranges;
-- Differential Evolution (scipy): global stochastic search over all
-  five setup variables with a convergence plot per generation.
+Searches the setup variables that actually move lap time in the point-mass
+QSS solver — **wing position** (ΔCd/ΔCl) and **cold tyre pressure** (static
+grip scaling):
+
+- Grid Search: exhaustive over wing × pressure, with a lap-time heatmap;
+- Differential Evolution (scipy): global search over [wing, pressure] with
+  a convergence plot per generation.
+
+Anti-roll bar balance and brake bias are held neutral: in a point-mass QSS
+model they do not change peak grip (the loaded axle saturates near the same
+floor regardless of roll-stiffness balance, and braking is grip-limited, not
+bias-limited). They belong to the transient 14-DOF model — see the roadmap
+note on the page.
 
 Author: Lap Time Simulator Team
-Date: 2026-06-06
+Date: 2026-06-06 (reworked 2026-07-06)
 """
 import time
 from itertools import product
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -22,23 +31,31 @@ from src.vehicle.fleet import get_vehicle_by_id
 from src.vehicle.setup import VehicleSetup, apply_setup
 from src.vehicle.units import bar_to_psi, psi_to_bar
 from .helpers import cached_solver, fmt_laptime, init_session_state
+from src.visualization.theme import ACCENT
+
+# Neutral, non-lap-affecting knobs held constant during optimization.
+_NEUTRAL_ARB = 4
+_NEUTRAL_BIAS = -1.0
+# Cold tyre pressure search window [bar] (safe setup range, see setup.py).
+_PRESSURE_MIN_BAR = 1.4
+_PRESSURE_MAX_BAR = 2.4
 
 
-def _evaluate_setup(base, circuit, arb_f: int, arb_r: int, wing: int,
-                    pressure_bar: float, bias: float) -> float:
-    """Lap time for one setup combination (inf when the solver fails)."""
+def _evaluate_setup(base, circuit, wing: int, pressure_bar: float) -> float:
+    """Lap time for one (wing, pressure) setup (inf when the solver fails)."""
     setup = VehicleSetup(
-        arb_front=int(arb_f),
-        arb_rear=int(arb_r),
+        arb_front=_NEUTRAL_ARB,
+        arb_rear=_NEUTRAL_ARB,
         wing_position=int(wing),
-        tyre_pressure=float(pressure_bar),
-        brake_bias=float(bias),
-        setup_name=f"ARB{int(arb_f)}/{int(arb_r)}_W{int(wing)}",
+        tyre_pressure=float(np.clip(pressure_bar, _PRESSURE_MIN_BAR,
+                                    _PRESSURE_MAX_BAR)),
+        brake_bias=_NEUTRAL_BIAS,
+        setup_name=f"W{int(wing)}_P{pressure_bar:.2f}",
     )
     params = apply_setup(base, setup)
     params_dict = params.to_solver_dict()
     # apply_setup already folded the pressure grip delta into mu/Cf/Cr;
-    # reset the exported cold pressure so it is not re-applied
+    # reset the exported cold pressure so it is not re-applied downstream.
     params_dict["P_cold_bar"] = 1.8
     try:
         r = cached_solver(params_dict=params_dict, circuit=circuit,
@@ -48,15 +65,14 @@ def _evaluate_setup(base, circuit, arb_f: int, arb_r: int, wing: int,
         return float("inf")
 
 
-def _run_differential_evolution(base, circuit, pressure_bounds_bar,
-                                bias_bounds, maxiter: int, popsize: int):
-    """DE over [arb_f, arb_r, wing, pressure, bias]; returns history+best."""
-    bounds = [(1, 7), (1, 7), (1, 9), pressure_bounds_bar, bias_bounds]
+def _run_differential_evolution(base, circuit, wing_bounds, pressure_bounds_bar,
+                                maxiter: int, popsize: int):
+    """DE over [wing, pressure]; returns the scipy result and history."""
+    bounds = [wing_bounds, pressure_bounds_bar]
     history: list = []
 
     def objective(x: np.ndarray) -> float:
-        arb_f, arb_r, wing = (int(round(v)) for v in x[:3])
-        return _evaluate_setup(base, circuit, arb_f, arb_r, wing, x[3], x[4])
+        return _evaluate_setup(base, circuit, int(round(x[0])), x[1])
 
     progress = st.progress(0, text="Differential evolution...")
 
@@ -76,33 +92,38 @@ def _run_differential_evolution(base, circuit, pressure_bounds_bar,
     return result, history
 
 
+def _roadmap_note() -> None:
+    """Explain why ARB and brake bias are not optimization variables."""
+    st.caption(
+        "Only **wing** and **tyre pressure** are searched — the two setup "
+        "knobs that move lap time in this point-mass QSS model. Anti-roll "
+        "bar balance and brake bias affect transient handling (turn-in, "
+        "mid-corner), which needs the transient 14-DOF model — roadmap item, "
+        "held neutral here."
+    )
+
+
 def optimization_page() -> None:
-    st.header("🔧 Setup Optimization")
+    st.header("Setup optimization")
+    st.caption("Search the wing / tyre-pressure space for the fastest setup.")
     init_session_state()
 
     if st.session_state.circuit is None:
-        st.warning("⚠️ Select a track in the 'Track' tab first.")
+        st.warning("Select a track on the Track page first.")
         return
 
     if st.session_state.vehicle_params is None or not st.session_state.params_saved:
-        st.warning("⚠️ Configure and **save** a vehicle in the 'Parameters' tab first.")
+        st.warning("Configure and save a vehicle on the Parameters page first.")
         return
 
-    st.caption(
-        "Grid-search over ARB front, ARB rear, and Wing position to find the "
-        "optimum setup combination for this track. Tyre pressure and brake bias "
-        "are kept constant. ARB levels map to roll stiffness (k_roll front/rear) "
-        "and wing positions to aero deltas (ΔCd/ΔCl) applied on top of the "
-        "selected truck's baseline parameters."
-    )
+    _roadmap_note()
 
     method = st.radio(
         "Optimization Method:",
         ["Grid Search", "Differential Evolution (scipy)"],
         horizontal=True, key="opt_method",
-        help="Grid Search sweeps ARB/wing exhaustively with fixed "
-             "pressure/bias. Differential Evolution searches all five "
-             "setup variables (incl. pressure and bias) globally."
+        help="Grid Search sweeps wing × pressure exhaustively. Differential "
+             "Evolution searches the same space globally and stochastically."
     )
 
     if method == "Differential Evolution (scipy)":
@@ -116,32 +137,33 @@ def optimization_page() -> None:
                 "Population Size", 6, 40, 12, step=2, key="opt_de_pop"
             )
 
-        if st.button("🧬 Run Differential Evolution", width="stretch",
+        if st.button("Run differential evolution", width="stretch",
                      type="primary"):
             base = get_vehicle_by_id(st.session_state.vehicle_id)
             circuit = st.session_state.circuit
             t0 = time.perf_counter()
             result, history = _run_differential_evolution(
                 base, circuit,
-                pressure_bounds_bar=(psi_to_bar(20.5), psi_to_bar(34.5)),
-                bias_bounds=(-2.0, 0.0),
+                wing_bounds=(1, 9),
+                pressure_bounds_bar=(_PRESSURE_MIN_BAR, _PRESSURE_MAX_BAR),
                 maxiter=int(de_maxiter), popsize=int(de_popsize),
             )
             elapsed = time.perf_counter() - t0
 
-            arb_f, arb_r, wing = (int(round(v)) for v in result.x[:3])
-            best_pressure, best_bias = float(result.x[3]), float(result.x[4])
+            best_wing = int(round(result.x[0]))
+            best_pressure = float(result.x[1])
             st.success(
-                f"✅ DE complete in {elapsed:.1f}s ({result.nfev} laps) — "
-                f"Optimum: **ARB {arb_f}/{arb_r} Wing {wing} | "
-                f"{bar_to_psi(best_pressure):.1f} psi | bias {best_bias:+.1f}** "
+                f"DE complete in {elapsed:.1f} s ({result.nfev} laps). "
+                f"Optimum: **wing {best_wing}, "
+                f"{bar_to_psi(best_pressure):.1f} psi "
+                f"({best_pressure:.2f} bar)** "
                 f"→ **{fmt_laptime(float(result.fun))}**"
             )
 
             fig_conv = go.Figure()
             fig_conv.add_trace(go.Scatter(
                 y=history, mode="lines+markers", name="Best lap",
-                line=dict(color="seagreen", width=2),
+                line=dict(color=ACCENT, width=2),
             ))
             fig_conv.update_layout(
                 title="Convergence — best lap time per generation",
@@ -151,35 +173,24 @@ def optimization_page() -> None:
             st.plotly_chart(fig_conv, width="stretch")
         return
 
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        pressure_psi = st.number_input(
-            "Tyre Pressure (psi)", 20.5, 34.5, 26.0, step=0.5, key="opt_pressure"
-        )
-        pressure = psi_to_bar(pressure_psi)
-        st.caption(f"= {pressure:.2f} bar")
-    with col_p2:
-        bias = st.slider("Brake Bias", -2.0, 0.0, -1.0, step=0.5, key="opt_bias")
+    # --- Grid search: wing × pressure ---
+    col_w, col_p = st.columns(2)
+    with col_w:
+        wing_range = st.slider("Wing Position Range", 1, 9, (1, 9),
+                               key="opt_wing")
+    with col_p:
+        n_pressure = st.slider("Pressure Steps", 3, 11, 6, key="opt_press_steps")
 
-    col_r1, col_r2, col_r3 = st.columns(3)
-    with col_r1:
-        arb_f_range = st.slider("ARB Front Range", 1, 7, (1, 7), key="opt_arb_f")
-    with col_r2:
-        arb_r_range = st.slider("ARB Rear Range", 1, 7, (1, 7), key="opt_arb_r")
-    with col_r3:
-        wing_range = st.slider("Wing Position Range", 1, 9, (1, 9), key="opt_wing")
-
-    arb_f_vals = list(range(arb_f_range[0], arb_f_range[1] + 1))
-    arb_r_vals = list(range(arb_r_range[0], arb_r_range[1] + 1))
     wing_vals = list(range(wing_range[0], wing_range[1] + 1))
-    total = len(arb_f_vals) * len(arb_r_vals) * len(wing_vals)
+    pressure_vals = np.linspace(_PRESSURE_MIN_BAR, _PRESSURE_MAX_BAR, n_pressure)
+    total = len(wing_vals) * len(pressure_vals)
 
     st.info(
         f"Total setup combinations to evaluate: **{total}** "
-        f"(ARB Front: {len(arb_f_vals)} × ARB Rear: {len(arb_r_vals)} × Wing: {len(wing_vals)})"
+        f"(Wing: {len(wing_vals)} × Pressure: {len(pressure_vals)})"
     )
 
-    if st.button("🚀 Run Setup Optimization Grid-Search", width="stretch", type="primary"):
+    if st.button("Run grid search", width="stretch", type="primary"):
         base = get_vehicle_by_id(st.session_state.vehicle_id)
         circuit = st.session_state.circuit
         results_opt = []
@@ -187,99 +198,61 @@ def optimization_page() -> None:
         bar = st.progress(0, text="Evaluating configurations...")
         t0 = time.perf_counter()
 
-        for idx, (af, ar, w) in enumerate(product(arb_f_vals, arb_r_vals, wing_vals)):
+        for idx, (w, pr) in enumerate(product(wing_vals, pressure_vals)):
             bar.progress(
                 (idx + 1) / total,
-                text=f"Combo {idx+1}/{total} — ARB {af}/{ar} | Wing {w}"
+                text=f"Combo {idx+1}/{total} — wing {w} | {pr:.2f} bar"
             )
-
-            setup = VehicleSetup(
-                arb_front=af,
-                arb_rear=ar,
-                wing_position=w,
-                tyre_pressure=float(pressure),
-                brake_bias=float(bias),
-                setup_name=f"ARB{af}/{ar}_W{w}",
-            )
-            params = apply_setup(base, setup)
-            params_dict = params.to_solver_dict()
-            # apply_setup already folded the pressure-dependent grip
-            # scaling into mu/Cf/Cr; reset the exported cold pressure to
-            # the reference so the legacy path doesn't re-apply the delta
-            params_dict["P_cold_bar"] = 1.8
-
-            try:
-                r = cached_solver(
-                    params_dict=params_dict,
-                    circuit=circuit,
-                    config={},
-                    save_csv=False
-                )
-                results_opt.append({
-                    "arb_f": af,
-                    "arb_r": ar,
-                    "wing": w,
-                    "lap_time": r["lap_time"],
-                    "vmax_kmh": float(np.max(r["v_profile"])) * 3.6,
-                    "vmean_kmh": float(np.mean(r["v_profile"])) * 3.6,
-                })
-            except Exception:
-                results_opt.append({
-                    "arb_f": af,
-                    "arb_r": ar,
-                    "wing": w,
-                    "lap_time": float("inf"),
-                    "vmax_kmh": 0.0,
-                    "vmean_kmh": 0.0,
-                })
+            lap = _evaluate_setup(base, circuit, w, pr)
+            results_opt.append({
+                "wing": w,
+                "pressure_bar": round(float(pr), 3),
+                "pressure_psi": round(bar_to_psi(float(pr)), 1),
+                "lap_time": lap,
+            })
 
         elapsed = time.perf_counter() - t0
         bar.empty()
 
         df_opt = pd.DataFrame(results_opt)
         valid_df = df_opt[df_opt["lap_time"] < float("inf")]
-        
+
         if valid_df.empty:
-            st.error("❌ All simulated setup configurations failed to solve.")
+            st.error("All setup configurations failed to solve.")
             return
 
         best = valid_df.loc[valid_df["lap_time"].idxmin()]
-
         st.success(
-            f"✅ Grid search complete in {elapsed:.1f}s — "
-            f"Optimum: **ARB {int(best.arb_f)}/{int(best.arb_r)} Wing {int(best.wing)}** "
+            f"Grid search complete in {elapsed:.1f} s. "
+            f"Optimum: **wing {int(best.wing)}, {best.pressure_psi:.1f} psi "
+            f"({best.pressure_bar:.2f} bar)** "
             f"→ **{fmt_laptime(best.lap_time)}**"
         )
 
-        # Top 10 setups
-        st.subheader("🏆 Top 10 Fast Setups")
+        st.subheader("Top 10 fastest setups")
         top10 = valid_df.nsmallest(10, "lap_time").copy()
         top10["Lap Time"] = top10["lap_time"].apply(fmt_laptime)
-        top10.columns = [c.replace("_", " ").title() for c in top10.columns]
-        st.dataframe(top10, width="stretch")
+        top10 = top10[["wing", "pressure_psi", "pressure_bar", "Lap Time"]]
+        top10.columns = ["Wing", "Pressure (psi)", "Pressure (bar)", "Lap Time"]
+        st.dataframe(top10, width="stretch", hide_index=True)
 
-        # Heatmaps — one per wing position
-        st.subheader("🗺️ Lap-Time Sensitivity (ARB Front vs ARB Rear)")
-        for w in wing_vals:
-            sub = valid_df[valid_df["wing"] == w]
-            if sub.empty:
-                continue
-            pivot = sub.pivot(index="arb_r", columns="arb_f", values="lap_time")
-            
-            fig_hm = go.Figure(go.Heatmap(
-                z=pivot.values,
-                x=[str(c) for c in pivot.columns],
-                y=[str(r) for r in pivot.index],
-                colorscale='RdYlGn_r',
-                colorbar=dict(title='Lap (s)'),
-                text=[[fmt_laptime(v) for v in row] for row in pivot.values],
-                texttemplate="%{text}",
-            ))
-            fig_hm.update_layout(
-                title=f'Wing Position = {w}',
-                xaxis_title='ARB Front (Stiffness Level)',
-                yaxis_title='ARB Rear (Stiffness Level)',
-                height=350,
-                margin=dict(l=0, r=0, t=40, b=0),
-            )
-            st.plotly_chart(fig_hm, width="stretch")
+        st.subheader("Lap-time sensitivity — wing vs tyre pressure")
+        pivot = valid_df.pivot(index="pressure_psi", columns="wing",
+                               values="lap_time")
+        fig_hm = go.Figure(go.Heatmap(
+            z=pivot.values,
+            x=[str(c) for c in pivot.columns],
+            y=[f"{r:.0f}" for r in pivot.index],
+            colorscale="RdYlGn_r",
+            colorbar=dict(title="Lap (s)"),
+            text=[[fmt_laptime(v) for v in row] for row in pivot.values],
+            texttemplate="%{text}",
+        ))
+        fig_hm.update_layout(
+            title="Lap time (s)",
+            xaxis_title="Wing Position",
+            yaxis_title="Tyre Pressure (psi)",
+            height=400,
+            margin=dict(l=0, r=0, t=40, b=0),
+        )
+        st.plotly_chart(fig_hm, width="stretch")

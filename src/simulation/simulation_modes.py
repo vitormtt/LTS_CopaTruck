@@ -84,6 +84,14 @@ class SimulationConfig:
     track_temperature_c: float = 35.0
     tyre_compound: str = "slick_dry"
     export_driver_inputs: bool = True
+    # Drive the minimum-curvature racing line instead of the centerline.
+    # Default False keeps the point-mass QSS baseline (Hase product) intact.
+    use_racing_line: bool = False
+    # Start the qualifying lap from the flying-lap periodic speed (v0 = exit
+    # speed of the closed lap) instead of the cold ~36 km/h launch. Default
+    # False: enabling it cuts the Cascavel anchor ~4.5 s and needs a mu
+    # recalibration validated vs .xrk (SPM P0b).
+    use_flying_lap_start: bool = False
     notes: str = ""
 
     v_entry_kmh: float = 100.0
