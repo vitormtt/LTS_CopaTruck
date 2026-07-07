@@ -102,15 +102,31 @@ Code default: `copa_truck_2dof_default()` — Mercedes-Benz Actros 600 kW, 12-sp
 ## Quick start
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# 1. Setup the isolated environment (uv, from pyproject.toml)
+uv sync                    # creates .venv with all deps
+# fallback: python -m venv .venv && .venv/bin/pip install -e .
 
-# Generate Interlagos track from GPS waypoints (first run only)
-python src/tracks/generate_br_tracks.py
-
-# Launch the Streamlit dashboard
-streamlit run src/visualization/interface.py
+# 2. Launch the dashboard
+.venv/bin/streamlit run src/visualization/interface.py
+# (with the venv activated, just: streamlit run src/visualization/interface.py)
 ```
+
+Then open **http://localhost:8501** in the browser. The app runs fully on
+the local JSON fallback (`data/vehicle_models.json`) — no database required.
+
+### How to visualize a lap
+
+Walk the pages left-to-right in the sidebar:
+
+1. **Parameters** — pick the vehicle preset, tweak params, **Save**.
+2. **Track** — select a circuit (Cascavel / Interlagos); optional racing-line toggle.
+3. **Simulation** — choose the mode (Qualifying / Standing start) and **Run**.
+4. **Results** — telemetry dashboard: speed map, G-G diagram, gear/RPM, sector
+   timing, PDF/CSV/HTML export (charts grouped in tabs).
+5. **Telemetry Overlay** / **Race Report** — compare the sim against real `.xrk`
+   laps (speed trace, Δt, grip factors).
+6. **Optimization** — sweep wing × tyre pressure (Grid search or Differential
+   Evolution) for the fastest setup.
 
 ### Docker (app + PostgreSQL)
 
