@@ -8,4 +8,5 @@ from .simulation import simulacao_page
 from .results import resultados_page
 from .optimization import optimization_page
 from .overlay import overlay_page
+from .race_report import race_report_page
 
