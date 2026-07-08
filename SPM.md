@@ -5,6 +5,52 @@
 
 ---
 
+## 0. Sessão 2026-07-07 (parte 3) — Batch B física: preset experimental (AGUARDA OK VITOR)
+
+- **Preset experimental `vw_31320_zf6_reference` CRIADO** em `data/vehicle_models.json`
+  (isolado, default `volkswagen_31320` byte-idêntico, **162 testes verdes**). NÃO commitado —
+  guardrail: aguarda OK do Vitor. **µ HELD 1.6** (não tocado, SPM §0b). Valores:
+  ZF6M `[6.75,3.60,2.13,1.39,1.00,0.78]` n_gears=6, final_drive 3.42, r_wheel 0.52,
+  driveline_eff 0.88, abs_enabled False, **Cx 0.74** (data-matched, NÃO 0.85 do research).
+- **Resultado (real load path, µ=1.6)**: Cascavel **79.965s / vmax 186.9 km/h** vs real
+  79.505 / 186.6 (**Δ+0.46s / +0.3 km/h** — bate lap E topo). Bate o default (80.694 / 192.3 =
+  +1.19s / +5.7). Interlagos 133.351 / 194.0 (centerline ruidoso = blocker conhecido, +9.5s).
+- **ACHADO — Cx research 0.85 é DRAGGY demais**: overlay vs .xrk (cached `src/results/test_converted*.csv`,
+  sem libxrk no venv) → real Cascavel vmax **186.6**, Interlagos real bate governador **199.6**
+  mas exp@Cx0.85 capa em 188 (regressão). Sweep Cx → **0.74** reproduz Cascavel real vmax (186.9).
+  .xrk > estimativa genérica bluff-body (crítica: 2 fontes conflitam, dado real ganha).
+- **ACHADO — modelo de pressão do `setup.py` é ESCALA DE CARRO e está VIVO** (não gated como o
+  bloco térmico do `_axle_grip`): `_TYRE_PRESSURE_REFERENCE=1.8 bar`, clip `[1.4, 2.4]`,
+  `_MU_CHANGE_PER_BAR=-0.03` (Porsche Carrera Cup src). `run_bicycle_model:1552` propaga
+  `P_cold_bar`→`setup.tyre_pressure` com clip. Setar P_cold_bar truck-scale (7.58 bar) → clipa
+  a 2.4 → penalidade espúria de grip (−1.8% mu, +0.38s). **`P_cold_*_psi` são INERTES** (só
+  `P_cold_bar` conta). ⇒ pressão de caminhão (110 psi) = **rework GLOBAL do setup.py**
+  (min/max/ref/sens), afeta default → tarefa separada + OK. Preset deixou pressão default.
+- **abs_enabled False** = fator plano `_NO_ABS_MODULATION=0.94` no brake cap (grip-limited,
+  +0.04s). Com abs=True + abs_slip_target=0.15=_ABS_PEAK_SLIP → fator 1.0. **#10 real** = modelo
+  de slip ratio/lockup (KB §10: sx=(ωR−vx)/vx), NÃO feito ainda — é código novo no solver.
+- **Cx 0.74 CONFIRMADO pelo Vitor** (entendeu que Cx=arrasto aero, não pneu). Preset fica 0.74.
+- **REWORK DE PRESSÃO FEITO (car→truck) — PHYSICS-NEUTRO, 162 verde**: `setup.py` ref
+  1.8→7.58 bar (110 psi), clip [1.4,2.4]→[6.55,8.62] (95–125 psi), sens `_MU_CHANGE_PER_BAR`
+  −0.03→−0.0145 / `_CS_CHANGE_PER_BAR` 0.15→0.072 (rescaladas p/ banda larga, interim s/ fonte).
+  Default `VehicleSetup`/`get_default_setup`/`TireParams`/fallbacks → 7.58/110. `optimization.py`
+  janela 6.55–8.62 + reset a 7.58 (ref=neutro). UI `vehicle_params.py` slider 95–125 psi. Ambos
+  presets JSON → P_cold_bar 7.58 / psi 110. **PROVA de neutralidade**: `git diff regression_baselines.json`
+  = SÓ `final_tyre_pressure_bar` mudou (2.3→8.1 bar, +5.78 = delta cold); lap/v/rpm/gear/temp/fuel
+  byte-idênticos. Baselines regeneradas legitimamente (só canal de pressão). Default Cascavel
+  80.694/192.3 intacto. **COMMIT `ac130b2`** (refactor pressure). Preset Part B = commit seguinte.
+- **#10 lockup — ACHADO**: `_bias_limited_decel` (solver:512) JÁ é modelo Limpert de primeiro-eixo-
+  travando com transferência de carga → **bias JÁ é funcional** no cap. Logo #10 NÃO é "adicionar
+  lockup" (existe); é lado-piloto: (V1) canal de telemetria de margem de travamento por eixo
+  (mostra risco por curva, driver-training, ZERO mudança de lap = derived) vs (V2) driver-error
+  model que de fato trava e perde tempo (épico "driver frontier", + wiring `brake_hardware.py`
+  bloqueado em números reais). Fork de escopo aguarda decisão Vitor.
+- **DECISÃO VITOR**: commitar ambos (feito) + implementar #10 **V1 + V2** ("3+1+2").
+- **PENDÊNCIAS**: (1) implementar #10 V1 (canal telemetria margem-lockup por eixo, derived,
+  zero lap) + V2 (driver-error model que trava sem ABS e perde tempo; wiring `brake_hardware.py`
+  bloqueado em números reais mas a parte de modulação/erro é fazível); cross-validar lap
+  (golden rule #2). (2) pressão sens é interim s/ fonte (pesquisa futura).
+
 ## 0. Sessão 2026-07-07 (parte 2) — consolidação develop + auditoria física
 
 - **`develop` CONSOLIDADO e pushado** (`origin/develop` = local, 0/0, **162 testes verdes**).
