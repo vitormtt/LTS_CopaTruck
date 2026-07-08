@@ -11,6 +11,10 @@ import numpy as np
 import pandas as pd
 from .lap_time_solver import SimulationResult
 from ..analysis.brake_lockup import geometry_from_params, lockup_margins
+from ..analysis.handling_balance import (
+    geometry_from_params as balance_geometry_from_params,
+    handling_balance,
+)
 
 
 class SimulationTelemetry:
@@ -34,6 +38,7 @@ class SimulationTelemetry:
         self._add_math_channels()
         if params is not None:
             self._add_lockup_channels(params)
+            self._add_balance_channels(params)
 
     def _add_math_channels(self) -> None:
         """Add standard SARU math channels for racecar data analysis."""
@@ -65,6 +70,17 @@ class SimulationTelemetry:
         self.df['brake_lockup_front'] = ch.front_margin
         self.df['brake_lockup_rear'] = ch.rear_margin
         self.df['brake_lockup_slip'] = ch.slip_estimate
+
+    def _add_balance_channels(self, params: dict) -> None:
+        """Add per-axle grip-utilisation and under/oversteer-balance channels."""
+        a_lat = self.result._a_lat_ms2
+        if a_lat is None:
+            a_lat = self.df['ay_lat_g'].values * 9.81
+        v_ms = self.result.v_kmh / 3.6
+        ch = handling_balance(a_lat, v_ms, balance_geometry_from_params(params))
+        self.df['balance_front_util'] = ch.front_utilisation
+        self.df['balance_rear_util'] = ch.rear_utilisation
+        self.df['handling_balance'] = ch.balance
 
     def get_metrics(self) -> dict[str, float]:
         """

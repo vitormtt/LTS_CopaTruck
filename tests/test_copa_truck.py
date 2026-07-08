@@ -161,7 +161,10 @@ def test_simulation_telemetry_math_channels() -> None:
     # Lockup channels only appear when params are supplied (backward-compatible).
     assert "brake_lockup_rear" not in telemetry.df.columns
     telemetry_lockup = SimulationTelemetry(result, params=vp.to_solver_dict())
-    for col in ("brake_lockup_front", "brake_lockup_rear", "brake_lockup_slip"):
+    for col in ("brake_lockup_front", "brake_lockup_rear", "brake_lockup_slip",
+                "balance_front_util", "balance_rear_util", "handling_balance"):
         assert col in telemetry_lockup.df.columns
     # A no-ABS truck brakes near its grip limit → the limiting axle sees margin.
     assert telemetry_lockup.df["brake_lockup_rear"].max() > 0.0
+    # Cornering points load the axles → non-zero grip utilisation.
+    assert telemetry_lockup.df["balance_front_util"].max() > 0.0
