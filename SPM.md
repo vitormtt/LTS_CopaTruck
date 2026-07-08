@@ -1,9 +1,30 @@
 # SARU Project Memory — LapTimeSimulator_CopaTruck
 
-> Última atualização: 2026-07-07
+> Última atualização: 2026-07-08
 > LER ao iniciar. ATUALIZAR ao final de cada tarefa.
 
 ---
+
+## 0. Sessão 2026-07-08 — consolidação develop + lint gate restaurado
+
+- **`develop` CONSOLIDADO e pushado** (`origin/develop` = local, sincronizado). Push dos 8 commits
+  da sessão parte-3 (`af84c06..b5978b9`: pressão car→truck, preset ZF6, #10 V1/V2 lockup, paper RSD,
+  balance channel) + 1 commit de tooling. **183 passed, 2 skipped** confirmado (re-rodado, 10s).
+- **LINT GATE RESTAURADO** (pendência §0 parte-3 #6): `ruff>=0.6` + `mypy>=1.11` adicionados ao
+  `[dependency-groups] dev` do `pyproject.toml` + config mínima (`line-length=100`, `target py310`,
+  `ignore_missing_imports`). `uv sync` instalou (ruff 0.15.20, mypy 2.2.0). Commit `6a864cf`
+  `chore(deps): add ruff and mypy to dev toolchain` (gitleaks limpo). **`/lint-and-validate` volta
+  a funcionar local.** ⚠️ `ruff check src/` → **41 findings** (19 auto-fixáveis: imports não usados
+  etc.) — cleanup é **tarefa separada** (toca ≥3 arquivos, precisa OK). Gate está VIVO, código não limpo ainda.
+- **AGENTS.md — nota STALE CORRIGIDA**: handoff/SPM diziam "typechange pendente no working tree".
+  FALSO agora — `git` limpo, AGENTS.md commitado como **arquivo real tracked** (mode 100644, commit
+  `34de1bb` "tracked mirror") **idêntico** a CLAUDE.md (39 linhas, `diff -q` = igual). Inócuo (não há
+  pendência). Nota: regra global pede symlink, mas commit fez mirror real deliberado — conflito de
+  intenção não-resolvido, mas SEM efeito enquanto idênticos. Não mexido (baixo valor, risco de churn).
+- **Pendências que sobram** (nada bloqueia consolidação): (1) viz Streamlit dos canais lockup +
+  handling_balance (#10 V1 + balance exportam CSV, falta plot — não-verificável headless). (2) ruff
+  41-findings cleanup. (3) bloqueadas em pesquisa Vitor: calibração µ, recaptura Interlagos (TUM FTM),
+  wiring `brake_hardware.py`, sourcing sens pressão/µ. (4) AGENTS.md symlink-vs-mirror (cosmético).
 
 ## 0. Sessão 2026-07-07 (parte 3) — Batch B física: preset experimental (AGUARDA OK VITOR)
 
