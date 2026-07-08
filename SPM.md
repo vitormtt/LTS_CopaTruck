@@ -65,6 +65,23 @@
   (`PROMPT_brake_hardware.md`). (4) pressão sens + µ = interim s/ fonte. (5) recaptura Interlagos
   segue pré-req da calibração µ (§0b). (6) venv sem ruff/mypy (gate de lint local quebrado).
 
+### Paper Sonnino 2026 (RSD / roll stiffness) — VALIDA nossa física
+- **Artigo** (Vitor mandou, "muito importante"): Sonnino et al., *Active control of vehicle lateral
+  dynamics through roll stiffness distribution*, Control Eng. Practice 168 (2026) 106735 (PoliMi+Brembo).
+  PDF em `docs/research/` (gitignored). Síntese umbrella em
+  `docs/research/RSD_Sonnino2026_roll_stiffness_synthesis.md` (commitada).
+- **ACHADO**: nosso solver JÁ implementa a Eq (3) do paper (split de transferência lateral por RSD):
+  `lap_time_solver.py:680` `dfz_f = m·a_lat·h_cg/tw_f · frac_f`, `frac_f = k_roll_f/(k_roll_f+k_roll_r)` = RSD.
+  Direção under/oversteer bate (↑front RSD → ls_f↓ → understeer). **Física de balanço CONFIRMADA, sem bug.**
+- **RESOLVE o "ARB inerte"** com fonte citável: ganho steady-state é PEQUENO (+7.6% ay lateral mesmo
+  com AARB ativo +50%); valor do ARB é TRANSIENTE (yaw settling −72%, sine-dwell overshoot −71%) →
+  exige 3DOF+/14DOF (saru-core), não é patch de QSS. ARB chapado no nosso lap é CORRETO, não gap.
+- **Umbrella**: lts-copatruck física OK (só falta canal telemetria de balanço under/oversteer, padrão
+  derived tipo brake_lockup); saru-core = onde ARB rende (14DOF + controle FF λ + FB yaw-rate + LQR ARS);
+  saru-os = harness ISO 4138/7401/19365 + KPIs; driver-model = yaw-rate ref (Eq 7-9) como alvo.
+- LapLabs.net = produto de telemetria/ML sim-racing (iRacing), NÃO fonte de física. Benchmark de UX
+  p/ overlay/race-report só.
+
 ## 0. Sessão 2026-07-07 (parte 2) — consolidação develop + auditoria física
 
 - **`develop` CONSOLIDADO e pushado** (`origin/develop` = local, 0/0, **162 testes verdes**).
