@@ -45,11 +45,25 @@
   (mostra risco por curva, driver-training, ZERO mudança de lap = derived) vs (V2) driver-error
   model que de fato trava e perde tempo (épico "driver frontier", + wiring `brake_hardware.py`
   bloqueado em números reais). Fork de escopo aguarda decisão Vitor.
-- **DECISÃO VITOR**: commitar ambos (feito) + implementar #10 **V1 + V2** ("3+1+2").
-- **PENDÊNCIAS**: (1) implementar #10 V1 (canal telemetria margem-lockup por eixo, derived,
-  zero lap) + V2 (driver-error model que trava sem ABS e perde tempo; wiring `brake_hardware.py`
-  bloqueado em números reais mas a parte de modulação/erro é fazível); cross-validar lap
-  (golden rule #2). (2) pressão sens é interim s/ fonte (pesquisa futura).
+- **DECISÃO VITOR**: commitar ambos + implementar #10 **V1 + V2** ("3+1+2"). TUDO FEITO.
+- **4 COMMITS na develop (173 verde, sem push)**: `ac130b2` refactor pressão · `575fd35` feat
+  preset ZF6 · `f32ace3` feat #10 V1 lockup channel · `cd537c3` feat #10 V2 bias-aware no-ABS.
+- **#10 V1 FEITO (`f32ace3`)**: `src/analysis/brake_lockup.py` puro — margem de travamento por
+  eixo (Limpert first-lock + transferência + downforce) + slip est (KB §10). Wired em
+  `SimulationTelemetry(result, params=...)` → canais CSV `brake_lockup_front/rear/slip`. DERIVED,
+  zero solver, lap intacto. 9 testes. Experimental@60% bias: **rear é o eixo limitante**
+  (margem 0.92 vs front 0.12) = confirma bias rearward. Falta só: plot na Results UI (surfacing).
+- **#10 V2 FEITO (`cd537c3`)**: `_brake_system_cap` no-ABS modulation agora **bias-aware** via
+  `_axle_lock_balance` (0.88 imbalanced → 0.97 balanced; era flat 0.94). SÓ afeta abs=False.
+  **Default (abs=True) BYTE-IDÊNTICO 80.694** (regression baselines intactos, cross-val golden
+  rule #2). Experimental 79.965→80.009 (+0.044s, <0.5s). **BIAS AGORA FUNCIONAL**: sweep 55–78%
+  front = 0.14s, ótimo ~65–70% (60% era rearward-imbalanced). Teste bias-functional. Ponto-massa
+  limita magnitude (freio move pouco), mas bias deixou de ser inerte.
+- **PENDÊNCIAS**: (1) plot lockup na Results UI (V1 já exporta p/ CSV; falta viz Streamlit —
+  não verificável headless aqui). (2) V2+: driver-error estocástico (trava DE FATO com erro) =
+  épico "driver frontier" maior. (3) wiring `brake_hardware.py` bloqueado em números reais
+  (`PROMPT_brake_hardware.md`). (4) pressão sens + µ = interim s/ fonte. (5) recaptura Interlagos
+  segue pré-req da calibração µ (§0b). (6) venv sem ruff/mypy (gate de lint local quebrado).
 
 ## 0. Sessão 2026-07-07 (parte 2) — consolidação develop + auditoria física
 
