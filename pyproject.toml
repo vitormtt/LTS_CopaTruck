@@ -27,4 +27,14 @@ lap-sim = "lap_time_simulator.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
