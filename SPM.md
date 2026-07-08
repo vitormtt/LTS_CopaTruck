@@ -1,9 +1,35 @@
 # SARU Project Memory — LapTimeSimulator_CopaTruck
 
-> Última atualização: 2026-07-05
+> Última atualização: 2026-07-07
 > LER ao iniciar. ATUALIZAR ao final de cada tarefa.
 
 ---
+
+## 0. Sessão 2026-07-07 (parte 2) — consolidação develop + auditoria física
+
+- **`develop` CONSOLIDADO e pushado** (`origin/develop` = local, 0/0, **162 testes verdes**).
+  Merge `--no-ff` de `feature/claude-product-upgrade` (`d2249be`) — traz Batch A viz + Race
+  Report + racing line + flying-lap flag; junto do trabalho da VM Cowork (transcrição Telios
+  real + `scripts/transcrever_telios.py`). Batch A saiu de "uncommitted" (§0b) para MERGED.
+- **Infra**: `pytest` declarado em `[dependency-groups] dev` (`7acc7e8`) — fix do bug em que
+  `uv sync` removia pytest e quebrava a suíte. **`.gemini/` untracked** (`f11cc3e`, git rm
+  --cached + gitignore) alinhando claude-only (regra global zero-GEMINI); preservado no disco.
+  Imagens `docs/Telios imagens/` gitignored (5 MB; transcrição textual é a fonte versionada).
+- **VM Cowork**: matar qemu+virtiofsd NÃO segura — `cowork-svc-linux`/`cowork-linux-helper`
+  (filhos do Claude Desktop) relançam a VM. Helper sozinho (sem qemu) é inócuo. Fechar de vez
+  = pela UI do Desktop. Guard de VM real: `ps -eo comm= | grep -qx qemu-system-x86`
+  (`pgrep -f "...cowork"` se auto-matcheia = falso positivo).
+- **AUDITORIA FÍSICA** (docs Drive `copa_truck_architecture_design.md` + saru-KB + dossiê CBA) —
+  confirma e amplia §0b. Alvos do preset experimental `*_zf6_reference` (guardrail, não mexer
+  default sem OK): caixa **12M → ZF 6S 6M** `6.75/3.60/2.13/1.39/1.00/0.78` diff 3.42 (causa
+  raiz #9); **r_wheel 0.65 → 0.52** (295/80 R22.5); **`abs_enabled=True` é FAKE** (Copa Truck
+  sem ABS → item #10 lockup); `driveline_eff 0.95 → 0.88`; `Cx 0.7 → 0.85`; pressão UI
+  20–34 psi → **95–125 psi**. Órfãos UI: `pacejka_E` exposto mas nunca usado no solver;
+  `aero_balance`/`abs_enabled` vivos mas invisíveis; linha "Optimum 95 °C" decorativa (temp
+  não acopla no grip). Telios = template do race report nível-pro (47 plots; pressão/temp por
+  canto por volta = viz do warmup do #3).
+- **Pendências**: `AGENTS.md` virou arquivo real (era symlink→CLAUDE.md) — typechange no
+  working tree, não resolvido (baixo risco). Recaptura Interlagos segue pré-req da calibração (§0b).
 
 ## 0b. Sessão 2026-07-06 (parte 3) — triagem 13 itens produto + Batch A viz
 
