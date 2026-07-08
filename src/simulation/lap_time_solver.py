@@ -598,8 +598,13 @@ _YAW_MOMENT_FACTOR = 0.5
 # Reference braking-zone duration for the first-order pedal-response
 # model: effective decel = cap * T_ref / (T_ref + t_response/2)
 _T_BRAKE_ZONE_REF = 2.5   # [s]
-# Threshold-braking margin of a driver without ABS (Limpert 1999)
-_NO_ABS_MODULATION = 0.94
+# Threshold-braking margin of a driver without ABS (Limpert 1999). How close
+# to the lock-up limit the driver can hold depends on brake balance: when both
+# axles lock together (balance -> 1) they modulate near the limit; when one
+# axle locks far earlier (balance -> 0) they must leave a bigger margin, so an
+# imbalanced bias costs lap time. Only active for abs_enabled = False.
+_NO_ABS_MOD_BALANCED = 0.97
+_NO_ABS_MOD_IMBALANCED = 0.88
 # Speed hysteresis below the last upshift point before a downshift is
 # allowed (prevents shift limit-cycles when the cut drops the speed)
 _DOWNSHIFT_HYST_MS = 2.0   # [m/s]
@@ -761,6 +766,32 @@ def _v_corner_limit(
     return float(np.sqrt(max(mu_lat * m_cur * _G * radius_i / denom, 0.0)))
 
 
+def _axle_lock_balance(
+    p: _LegacyVehicleParams,
+    mu_eff: float,
+    m_cur: float,
+    F_normal: float,
+) -> float:
+    """
+    Balance of the two axle first-lock decelerations (0-1).
+
+    Returns the ratio of the smaller to the larger of the front- and
+    rear-limited lock-up decelerations (same Limpert formulas as
+    ``_bias_limited_decel``). 1.0 means both axles reach lock-up together
+    (ideal bias); values near 0 mean one axle locks far earlier, so a
+    driver without ABS must leave a bigger modulation margin.
+    """
+    g_eff = F_normal / m_cur
+    b = p.brake_balance / 100.0
+    mu_h_over_l = mu_eff * p.h_cg / p.L
+
+    a_rear = mu_eff * g_eff * (p.lf / p.L) / ((1.0 - b) + mu_h_over_l)
+    a_front = (mu_eff * g_eff * (p.lr / p.L) / (b - mu_h_over_l)
+               if b > mu_h_over_l else float("inf"))
+    lo, hi = min(a_front, a_rear), max(a_front, a_rear)
+    return lo / hi if hi > 0.0 else 0.0
+
+
 def _brake_system_cap(
     p: _LegacyVehicleParams,
     mu_total: float,
@@ -773,6 +804,10 @@ def _brake_system_cap(
     Combines the system decel limit, the bias/first-axle-lockup limit,
     the ABS / driver-modulation efficiency and a first-order pedal
     response loss (average ramp loss over a reference braking zone).
+
+    Without ABS the driver-modulation factor scales with the axle lock
+    balance, so an imbalanced brake bias (one axle locking far earlier)
+    costs lap time — the incentive to tune bias toward a balanced lock-up.
     """
     cap = min(p.max_decel,
               _bias_limited_decel(p, mu_total, m_cur, F_normal))
@@ -780,7 +815,9 @@ def _brake_system_cap(
         cap *= max(1.0 - _ABS_SLIP_SENSITIVITY
                    * abs(p.abs_slip_target - _ABS_PEAK_SLIP), 0.5)
     else:
-        cap *= _NO_ABS_MODULATION
+        balance = _axle_lock_balance(p, mu_total, m_cur, F_normal)
+        cap *= (_NO_ABS_MOD_IMBALANCED
+                + (_NO_ABS_MOD_BALANCED - _NO_ABS_MOD_IMBALANCED) * balance)
     cap *= _T_BRAKE_ZONE_REF / (_T_BRAKE_ZONE_REF
                                 + max(p.brake_response_time, 0.0) / 2.0)
     return cap

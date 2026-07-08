@@ -105,6 +105,32 @@ def test_interlagos_validation() -> None:
 
 
 
+def test_no_abs_brake_bias_affects_lap_time() -> None:
+    """Without ABS the bias-aware modulation makes brake balance move the lap.
+
+    A rearward-imbalanced bias (60% front on this truck) locks the rear early,
+    so the no-ABS driver must brake softer and loses time; shifting bias
+    forward toward a balanced lock-up recovers it.
+    """
+    import copy
+    from src.simulation.lap_time_solver import run_bicycle_model
+
+    params = get_vehicle_by_id("vw_31320_zf6_reference").to_solver_dict()
+    assert params["abs_enabled"] is False
+    track_path = os.path.join(str(ROOT), "tracks", "cascavel.hdf5")
+    circuit, _ = CircuitHDF5Reader(track_path).read_circuit()
+
+    def lap(bias: float) -> float:
+        p = copy.deepcopy(params)
+        p["brake_balance"] = bias
+        return run_bicycle_model(p, circuit, {"gear_min": 4})["lap_time"]
+
+    rearward = lap(60.0)
+    forward = lap(72.0)
+    assert rearward > forward, "forward bias should recover time without ABS"
+    assert (rearward - forward) > 0.03, "brake bias must be functional (>0.03s)"
+
+
 def test_simulation_telemetry_math_channels() -> None:
     """Verify that SimulationTelemetry correctly builds math channels and exports to CSV."""
     from src.simulation.lap_time_solver import run_simulation, SimulationConfig
