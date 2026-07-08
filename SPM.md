@@ -81,6 +81,14 @@
   saru-os = harness ISO 4138/7401/19365 + KPIs; driver-model = yaw-rate ref (Eq 7-9) como alvo.
 - LapLabs.net = produto de telemetria/ML sim-racing (iRacing), NÃO fonte de física. Benchmark de UX
   p/ overlay/race-report só.
+- **FEITO (commit seguinte ao doc)**: canal de telemetria `handling_balance` (`src/analysis/handling_balance.py`)
+  — utilização de grip por eixo (demand/capacity) + balanço assinado (>0 understeer). Derived, ZERO
+  solver, wired em SimulationTelemetry (`balance_front_util/rear_util/handling_balance`). **Torna ARB
+  VISÍVEL**: front-stiff→understeer (+0.031), rear-stiff→oversteer (−0.033), lap idêntico 80.009 nos 3
+  (confirma paper: RSD não move lap QSS). 9 testes. Total suíte **183 verde**. É a oportunidade #1 do
+  synthesis doc. Restam: #3 harness ISO (saru-os), #2 yaw-ref transiente (muda solver), plot Streamlit.
+- **7 COMMITS totais na sessão** (develop, sem push): ac130b2 pressão · 575fd35 preset ZF6 · f32ace3
+  #10 V1 lockup · cd537c3 #10 V2 bias-aware · c7afefb docs paper RSD · +balance channel · +este SPM.
 
 ## 0. Sessão 2026-07-07 (parte 2) — consolidação develop + auditoria física
 
