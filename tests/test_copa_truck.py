@@ -131,3 +131,11 @@ def test_simulation_telemetry_math_channels() -> None:
     assert "max_g_sum" in metrics
     assert "max_brake_speed" in metrics
     assert metrics["max_g_sum"] > 0.0
+
+    # Lockup channels only appear when params are supplied (backward-compatible).
+    assert "brake_lockup_rear" not in telemetry.df.columns
+    telemetry_lockup = SimulationTelemetry(result, params=vp.to_solver_dict())
+    for col in ("brake_lockup_front", "brake_lockup_rear", "brake_lockup_slip"):
+        assert col in telemetry_lockup.df.columns
+    # A no-ABS truck brakes near its grip limit → the limiting axle sees margin.
+    assert telemetry_lockup.df["brake_lockup_rear"].max() > 0.0
