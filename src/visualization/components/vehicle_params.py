@@ -26,9 +26,9 @@ from src.vehicle.units import bar_to_psi, psi_to_bar
 from .helpers import init_session_state
 from .torque_curve import render_torque_curve_editor
 
-# Cold pressure UI range mapped to the safe setup window (1.4–2.4 bar)
-_PRESSURE_PSI_MIN = 20.5
-_PRESSURE_PSI_MAX = 34.5
+# Cold pressure UI range mapped to the safe truck setup window (6.55–8.62 bar)
+_PRESSURE_PSI_MIN = 95.0
+_PRESSURE_PSI_MAX = 125.0
 
 # Session-state prefixes owned by this page's parameter widgets. They must
 # be dropped when the selected vehicle changes: Streamlit ignores a

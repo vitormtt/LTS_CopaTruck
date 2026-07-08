@@ -36,9 +36,9 @@ from src.visualization.theme import ACCENT
 # Neutral, non-lap-affecting knobs held constant during optimization.
 _NEUTRAL_ARB = 4
 _NEUTRAL_BIAS = -1.0
-# Cold tyre pressure search window [bar] (safe setup range, see setup.py).
-_PRESSURE_MIN_BAR = 1.4
-_PRESSURE_MAX_BAR = 2.4
+# Cold tyre pressure search window [bar] (safe truck setup range, see setup.py).
+_PRESSURE_MIN_BAR = 6.55
+_PRESSURE_MAX_BAR = 8.62
 
 
 def _evaluate_setup(base, circuit, wing: int, pressure_bar: float) -> float:
@@ -55,8 +55,9 @@ def _evaluate_setup(base, circuit, wing: int, pressure_bar: float) -> float:
     params = apply_setup(base, setup)
     params_dict = params.to_solver_dict()
     # apply_setup already folded the pressure grip delta into mu/Cf/Cr;
-    # reset the exported cold pressure so it is not re-applied downstream.
-    params_dict["P_cold_bar"] = 1.8
+    # reset the exported cold pressure to the reference so it is not
+    # re-applied downstream (delta = 0 at the reference).
+    params_dict["P_cold_bar"] = 7.58
     try:
         r = cached_solver(params_dict=params_dict, circuit=circuit,
                           config={}, save_csv=False)

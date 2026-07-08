@@ -86,14 +86,14 @@ class TireParams:
     pacejka_D: float = 1.0    # Peak factor [-]
     pacejka_E: float = 0.97   # Curvature factor [-]
 
-    # Cold tyre pressure (passed to ThermalPacejkaTire)
-    cold_pressure_bar: float = 1.8  # Cold tyre pressure [bar]
+    # Cold tyre pressure (passed to ThermalPacejkaTire) — truck scale (110 psi)
+    cold_pressure_bar: float = 7.58  # Cold tyre pressure [bar]
 
     # Individual cold tyre pressures [psi]
-    cold_pressure_lf_psi: float = 26.1
-    cold_pressure_fr_psi: float = 26.1
-    cold_pressure_lr_psi: float = 26.1
-    cold_pressure_rr_psi: float = 26.1
+    cold_pressure_lf_psi: float = 110.0
+    cold_pressure_fr_psi: float = 110.0
+    cold_pressure_lr_psi: float = 110.0
+    cold_pressure_rr_psi: float = 110.0
 
     # Thermal model (future tire temperature simulation)
     thermal_capacity: float = 0.0      # Tire thermal capacity [J/K]
@@ -322,7 +322,7 @@ class VehicleParams:
             mg['track_width_rear'] = mg['track_width_front']
         tire_data = dict(data['tire'])
         if 'cold_pressure_lf_psi' not in tire_data:
-            bar_val = tire_data.get('cold_pressure_bar', 1.8)
+            bar_val = tire_data.get('cold_pressure_bar', 7.58)
             tire_data['cold_pressure_lf_psi'] = bar_val * 14.5038
             tire_data['cold_pressure_fr_psi'] = bar_val * 14.5038
             tire_data['cold_pressure_lr_psi'] = bar_val * 14.5038
@@ -485,11 +485,11 @@ class VehicleParams:
                 pacejka_C=data.get('pacejka_C', 1.3),
                 pacejka_D=data.get('pacejka_D', 1.0),
                 pacejka_E=data.get('pacejka_E', 0.97),
-                cold_pressure_bar=data.get('P_cold_bar', 1.8),
-                cold_pressure_lf_psi=data.get('P_cold_lf_psi', data.get('P_cold_bar', 1.8) * 14.5038),
-                cold_pressure_fr_psi=data.get('P_cold_fr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
-                cold_pressure_lr_psi=data.get('P_cold_lr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
-                cold_pressure_rr_psi=data.get('P_cold_rr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
+                cold_pressure_bar=data.get('P_cold_bar', 7.58),
+                cold_pressure_lf_psi=data.get('P_cold_lf_psi', data.get('P_cold_bar', 7.58) * 14.5038),
+                cold_pressure_fr_psi=data.get('P_cold_fr_psi', data.get('P_cold_bar', 7.58) * 14.5038),
+                cold_pressure_lr_psi=data.get('P_cold_lr_psi', data.get('P_cold_bar', 7.58) * 14.5038),
+                cold_pressure_rr_psi=data.get('P_cold_rr_psi', data.get('P_cold_bar', 7.58) * 14.5038),
             ),
             aero=AeroParams(
                 drag_coefficient=data.get('Cx', 0.85),

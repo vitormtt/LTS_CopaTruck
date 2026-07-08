@@ -73,11 +73,16 @@ _WING_DELTA: Tuple[Tuple[float, float], ...] = (
 # ---------------------------------------------------------------------------
 # Tyre pressure reference values
 # ---------------------------------------------------------------------------
-_TYRE_PRESSURE_REFERENCE: float = 1.8     # [bar] cold reference
-_TYRE_PRESSURE_MIN: float = 1.4           # [bar] minimum safe
-_TYRE_PRESSURE_MAX: float = 2.4           # [bar] maximum safe
-_CS_CHANGE_PER_BAR: float = 0.15          # [fraction] Δcornering_stiffness / bar
-_MU_CHANGE_PER_BAR: float = -0.03         # [fraction] Δmu / bar
+# Copa Truck tyre operating window (95–125 psi), not the car scale it replaced
+# (1.4–2.4 bar). Reference = 110 psi. Per-bar sensitivities are rescaled for the
+# wider truck band so the grip swing across the window stays modest and the
+# reference stays grip-neutral. Interim magnitudes (unsourced, like mu) until a
+# truck tyre pressure-sensitivity curve lands — see docs/COPA_TRUCK research.
+_TYRE_PRESSURE_REFERENCE: float = 7.58    # [bar] cold reference (110 psi)
+_TYRE_PRESSURE_MIN: float = 6.55          # [bar] minimum safe (95 psi)
+_TYRE_PRESSURE_MAX: float = 8.62          # [bar] maximum safe (125 psi)
+_CS_CHANGE_PER_BAR: float = 0.072         # [fraction] Δcornering_stiffness / bar
+_MU_CHANGE_PER_BAR: float = -0.0145       # [fraction] Δmu / bar
 
 
 @dataclass
@@ -99,7 +104,7 @@ class VehicleSetup:
     arb_front: int = 4
     arb_rear: int = 4
     wing_position: int = 5
-    tyre_pressure: float = 1.8          # [bar] cold
+    tyre_pressure: float = 7.58         # [bar] cold (110 psi, truck scale)
     brake_bias: float = -1.0            # range: -2.0 to 0
     setup_name: str = "default"
 
@@ -256,13 +261,13 @@ def get_default_setup(setup_name: str = "default") -> VehicleSetup:
     Return a neutral mid-range setup (all parameters at mid-position).
 
     Returns:
-        VehicleSetup with ARB 4/4, wing 5, pressure 1.8 bar, bias -1.0.
+        VehicleSetup with ARB 4/4, wing 5, pressure 7.58 bar (110 psi), bias -1.0.
     """
     return VehicleSetup(
         arb_front=4,
         arb_rear=4,
         wing_position=5,
-        tyre_pressure=1.8,
+        tyre_pressure=7.58,
         brake_bias=-1.0,
         setup_name=setup_name,
     )

@@ -8,7 +8,7 @@
     "max_speed_kmh": 192.2562275856487,
     "fuel_total_l": 2.660034123105934,
     "final_tyre_temp_c": 68.16008363662553,
-    "final_tyre_pressure_bar": 2.3179210036395066,
+    "final_tyre_pressure_bar": 8.097921003639506,
     "channels": {
       "v_kmh": {
         "length": 3000,
@@ -63,7 +63,7 @@
     "max_speed_kmh": 192.25628816691435,
     "fuel_total_l": 2.676732826288642,
     "final_tyre_temp_c": 68.33890292269757,
-    "final_tyre_pressure_bar": 2.320066835072371,
+    "final_tyre_pressure_bar": 8.10006683507237,
     "channels": {
       "v_kmh": {
         "length": 3000,
@@ -118,7 +118,7 @@
     "max_speed_kmh": 200.0,
     "fuel_total_l": 3.661683871801344,
     "final_tyre_temp_c": 72.72184892516707,
-    "final_tyre_pressure_bar": 2.372662187102005,
+    "final_tyre_pressure_bar": 8.152662187102004,
     "channels": {
       "v_kmh": {
         "length": 862,
