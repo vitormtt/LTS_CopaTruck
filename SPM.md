@@ -5,6 +5,37 @@
 
 ---
 
+## 0. Sessão 2026-07-10 (parte 2) — research freio APLICADA + design views UI
+
+- **RESEARCH CHEGOU (2 docs no `docs/`)**: `Especificações Freio Copa Truck.md` (responde
+  PROMPT_brake_hardware: Knorr SN7 2×68mm, câmaras Tipo 24/20 → pressão hidráulica equivalente
+  **314/263 bar** F/R, Fras-le PD/116 µ **0.48**, disco 430mm → R efetivo **0.1725 m**; teto
+  hardware ~5.45g >> grip ⇒ freio é grip-limited; validação telemetria 0.8g sustentado /1.4g pico)
+  + `Validação de Lap Sim.md` (responde PROMPT_track_reconstruction: pipeline TUM→ICP/Procrustes→
+  Frenet→opt_min_curv→µ do G-G; **gates**: RMSE ≤3 km/h, apex ≤1.5-2 km/h, microssetor ≤0.15s,
+  G-G ≤0.05G, sim 0.5-2% mais rápido que piloto real). ⚠️ Ref 17 do doc freio = unknown_url →
+  valores soft (alavancagem 15.6, 314/263, 0.48, 0.1725) tratados como ESTIMADO.
+- **WIRING FREIO FEITO (`1b33bd2`)**: `brake_hardware.py` +`wheels_per_axle=2` (doc conta 1 caliper/
+  roda; módulo somava 1/eixo — teto agora 5.50g, bate doc); `BrakeParams.hardware_front/rear`
+  opcionais → `VehicleParams.derived_brake_force()` → override de `max_brake_force` no to_solver_dict
+  (fallback slider quando None) + roundtrip + validação; preset experimental ganhou blocos
+  `brake_hw_front/rear`. **Δlap experimental = +0.0000s** (80.009, grip-limited como doc previu),
+  default byte-intacto (80.694). Bias natural pneumático **54.4% front**. Nota: caminho Postgres
+  (vehicle_mapping) NÃO persiste hardware (só JSON fallback) — aceitável V1.
+- **DESIGN VIEWS UI (`2c13e51`, pedido 3-itens do Vitor)**: (1) **Tires**: radio Linear|Pacejka
+  (persistido `TireParams.tire_model`, roundtrip OK); branch Pacejka edita B/C/D/E + plota **Fx, Fy,
+  Mz, Mx, My** do novo `src/vehicle/tire_model.py` (MF puro; ratios de forma da literatura como
+  constantes nomeadas; slider Fz ref default = quarter static). Solver SEGUE linear (rotulado na UI;
+  wiring Pacejka no solver = mudança guardrail futura). (2) **Transmission**: `transmission_curves.py`
+  puro → plots V-por-marcha vs RPM + força trativa sawtooth vs road load (arrasto+rolagem) —
+  valida gearing visualmente. (3) **Brakes**: toggle hardware **editável em QUALQUER preset**
+  (default OFF; liga → 6 inputs seeded com pacote researched, metric força derivada + bias natural,
+  input manual disabled). Verificado live: default r_wheel 0.65 → 213.5 kN (=266.9×0.52/0.65,
+  consistente). **205 passed, 2 skipped**; ruff limpo.
+- **Follow-ups**: (a) épico pipeline track/µ (doc Validação §Pipeline: TUM+ICP+Frenet+gates) =
+  PRÓXIMA GRANDE TAREFA, desbloqueada; (b) Pacejka no solver (cross-validation); (c) persistir
+  hardware/tire_model no schema Postgres; (d) ruff tests/ legado 26 findings.
+
 ## 0. Sessão 2026-07-10 — ruff cleanup + viz lockup/balance (V1+V2) FEITA
 
 - **RUFF CLEANUP COMPLETO** (pendência #6/§0-2026-07-08): 41 findings → **0** (`ruff check src/`
