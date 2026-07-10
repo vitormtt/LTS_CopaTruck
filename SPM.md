@@ -5,6 +5,30 @@
 
 ---
 
+## 0. Sessão 2026-07-10 (parte 4) — racing line ALWAYS-ON + width + auditoria docs
+
+- **RACING LINE SEMPRE É O DRIVING PATH (`00eb870`, diretiva Vitor)**: `use_racing_line`
+  default True (dataclass + dict path); toggle da Track page virou **viz-only**
+  ("Show racing line on map"). False só como baseline de debug centerline.
+- **CORREDOR POR LARGURA DE VEÍCULO (doc Validação mandava)**: `compute_racing_line`
+  ganhou `vehicle_width_m` — bounds do QP viram ±(1−margin), margin=(w/2)/half_width
+  clip 0.95. Largura = bitola + 1 seção de pneu (`_TYRE_SECTION_WIDTH_M=0.295`).
+  Caminhão 2.4m ≠ fórmula. **Cache do solver keyed por largura** (trocar veículo
+  recomputa). Viz da Track usa a MESMA largura (vp salvo) — mapa bate com solver.
+- **Δ (µ=1.6 held)**: Cascavel qualy 75.57→**70.78s** (−8.7s vs real 79.505 — fudge µ
+  TOTALMENTE exposto, todos os componentes estruturais agora honestos). Interlagos
+  **121.36s** vs real 123.9 (racing line absorveu o grosso do ruído da centerline!).
+  Baselines regeneradas; asserts 69–74 / 118–126 + bias threshold 0.03→0.02 (traçado
+  suave freia menos) com rationale. **206 verdes.**
+- **AUDITORIA DE DOCS FEITA (`d8aae17`, pedido Vitor)**: TODOS os 16 docs ganharam
+  banner de status (✅ aplicado / ⚠️ parcialmente superseded / referência / histórico /
+  prompt respondido). **`docs/README.md` = índice mestre** (feito vs a-fazer priorizado
+  vs referência vs histórico). ARCHITECTURE atualizado (árvore real + defaults físicos
+  2026-07-10). FULL_PHYSICS: F1 ✅, F3-hardware ✅. CALIBRATION_AUDIT: P7+track
+  respondidos; **P4 µ, P1 governador, P2 massa/CG/Iz, P5 ratios, P6 torque = ABERTOS**.
+- **PRÓXIMO ÉPICO CRAVADO**: pipeline track/µ (doc Validação) — recalibra µ com gates
+  formais (RMSE ≤3 km/h, apex ≤2, G-G ≤0.05G, sim 0.5–2% mais rápido). Fecha o −8.7s.
+
 ## 0. Sessão 2026-07-10 (parte 3) — FUSÃO DE PRESETS + qualy flying + results rework
 
 - **FUSÃO DE PRESETS (`40cf6f5`, DECISÃO VITOR "confirmo fusão")**: preset único
