@@ -128,9 +128,14 @@ def test_brake_response_time_live(ref) -> None:
 
 
 def test_abs_live(ref) -> None:
-    """Disabling ABS applies the driver-modulation margin."""
-    r = _run(lambda v: setattr(v.brake, "abs_enabled", False))
-    assert r.lap_time > ref.lap_time
+    """Enabling ABS removes the no-ABS driver-modulation penalty.
+
+    The merged preset ships abs_enabled=False (Copa Truck has no ABS), so
+    the reference lap carries the modulation margin; switching ABS on must
+    recover time.
+    """
+    r = _run(lambda v: setattr(v.brake, "abs_enabled", True))
+    assert r.lap_time < ref.lap_time
 
 
 def test_weight_distribution_live(ref) -> None:

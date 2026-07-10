@@ -561,8 +561,10 @@ def parametros_veiculo_page() -> None:
             else:
                 vp.brake.hardware_front = None
                 vp.brake.hardware_rear = None
+            # Max must fit the hardware-derived force (~267 kN researched
+            # package), which round-trips into this field via the preset.
             vp.brake.max_brake_force = st.number_input(
-                "Max Total Brake Force (N)", 20000.0, 120000.0,
+                "Max Total Brake Force (N)", 20000.0, 400000.0,
                 float(vp.brake.max_brake_force), step=1000.0, key="vp_brake_force",
                 disabled=use_hw,
             )

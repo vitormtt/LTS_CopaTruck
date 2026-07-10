@@ -89,9 +89,10 @@ class SimulationConfig:
     use_racing_line: bool = False
     # Start the qualifying lap from the flying-lap periodic speed (v0 = exit
     # speed of the closed lap) instead of the cold ~36 km/h launch. Default
-    # False: enabling it cuts the Cascavel anchor ~4.5 s and needs a mu
-    # recalibration validated vs .xrk (SPM P0b).
-    use_flying_lap_start: bool = False
+    # True since 2026-07-10: a qualifying hot lap IS a flying lap by
+    # definition — the old v0=10 m/s launch leaked ~4.5 s into the lap and
+    # the mu fudge was co-calibrated around it. Standing start unaffected.
+    use_flying_lap_start: bool = True
     notes: str = ""
 
     v_entry_kmh: float = 100.0

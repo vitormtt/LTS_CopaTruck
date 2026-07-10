@@ -1581,7 +1581,9 @@ def run_bicycle_model(
         tyre_compound="slick_dry",
         export_driver_inputs=True,
         use_racing_line=bool(config.get("use_racing_line", False)),
-        use_flying_lap_start=bool(config.get("use_flying_lap_start", False)),
+        # Qualifying defaults to the flying-lap periodic start (a hot lap by
+        # definition); pass False explicitly to reproduce the cold launch.
+        use_flying_lap_start=bool(config.get("use_flying_lap_start", True)),
     )
     # Propagate the vehicle's cold tyre pressure into the setup so the
     # pressure input actually reaches the solver (hot-pressure trace and
