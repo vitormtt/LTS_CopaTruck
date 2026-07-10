@@ -11,7 +11,6 @@ import os
 import sys
 from pathlib import Path
 import numpy as np
-import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -79,8 +78,12 @@ def test_cascavel_validation() -> None:
     # is the known mu=1.6 fudge, to be recalibrated with the track/mu
     # pipeline (docs/Validação de Lap Sim.md). This range guards against
     # silent regressions of the CURRENT physics, not against the anchor.
+    # 2026-07-10 p4: racing line is now ALWAYS the driving path (with the
+    # truck-width corridor), stacking on the flying start: sim = 70.78s.
+    # The -8.7s vs the real pole is the mu=1.6 fudge fully exposed — the
+    # calibration pipeline (docs/Validação de Lap Sim.md) will re-anchor mu.
     lap_time = res["lap_time"]
-    assert 74.0 <= lap_time <= 78.0, f"Cascavel simulated time {lap_time:.2f}s is out of target range [74s, 78s]"
+    assert 69.0 <= lap_time <= 74.0, f"Cascavel simulated time {lap_time:.2f}s is out of target range [69s, 74s]"
     
     # Top speed should be around 193 km/h
     v_max = np.max(res["v_profile"]) * 3.6
@@ -98,11 +101,13 @@ def test_interlagos_validation() -> None:
     circuit, meta = CircuitHDF5Reader(track_path).read_circuit()
     res = run_bicycle_model(params_dict, circuit, {"gear_min": 4})
     
-    # Interlagos centerline is noisy (~+4s vs racing line, LTS_RESEARCH §5);
-    # range is a smoke bound only until the track is recaptured from .xrk GPS.
-    # Regulation-baseline preset sims 133.2s (real pole PRO 2025: 123.9s).
+    # Interlagos centerline is noisy; range is a smoke bound only until the
+    # track is recaptured via the TUM pipeline (docs/Validação de Lap Sim.md).
+    # 2026-07-10 p4 (racing line always on + flying start): sim = 121.4s
+    # (real pole PRO 2025: 123.9s — the racing line absorbs most of the old
+    # centerline noise penalty).
     lap_time = res["lap_time"]
-    assert 128.0 <= lap_time <= 136.0, f"Interlagos simulated time {lap_time:.2f}s is out of target range [128s, 136s]"
+    assert 118.0 <= lap_time <= 126.0, f"Interlagos simulated time {lap_time:.2f}s is out of target range [118s, 126s]"
     
     # Top speed should hit the speed governor (200 km/h)
     v_max = np.max(res["v_profile"]) * 3.6
@@ -133,7 +138,9 @@ def test_no_abs_brake_bias_affects_lap_time() -> None:
     rearward = lap(60.0)
     forward = lap(72.0)
     assert rearward > forward, "forward bias should recover time without ABS"
-    assert (rearward - forward) > 0.03, "brake bias must be functional (>0.03s)"
+    # Threshold 0.02s since racing-line-always-on (2026-07-10): the smoother
+    # driven path brakes less, shrinking the bias sensitivity vs centerline.
+    assert (rearward - forward) > 0.02, "brake bias must be functional (>0.02s)"
 
 
 def test_simulation_telemetry_math_channels() -> None:

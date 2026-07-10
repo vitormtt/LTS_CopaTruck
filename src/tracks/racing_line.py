@@ -76,6 +76,7 @@ def compute_racing_line(
     left: np.ndarray,
     right: np.ndarray,
     closed: bool = True,
+    vehicle_width_m: float = 0.0,
 ) -> RacingLine:
     """Compute the minimum-curvature racing line within the track boundaries.
 
@@ -84,6 +85,9 @@ def compute_racing_line(
         left: Left boundary points, shape (N, 2).
         right: Right boundary points, shape (N, 2).
         closed: True for a closed circuit (periodic), False for an open segment.
+        vehicle_width_m: Vehicle width [m]; the usable corridor shrinks by
+            half of it on each side, so a wide truck gets a different (and
+            slower) optimal line than a narrow single-seater. 0 = point-width.
 
     Returns:
         RacingLine with the path, per-point lateral offset and half-width.
@@ -120,7 +124,13 @@ def compute_racing_line(
     ]).tocsr()
     b = np.concatenate([D @ center[:, 0], D @ center[:, 1]])
 
-    sol = lsq_linear(A, -b, bounds=(-1.0, 1.0), max_iter=200)
+    # Shrink the usable corridor by half the vehicle width on each side
+    # (doc "Validação de Lap Sim": track limits must be discounted by the
+    # vehicle's structural width). Cap the margin so a too-narrow track never
+    # inverts the bounds — the line degrades toward the centerline there.
+    margin = np.clip((vehicle_width_m / 2.0) / half_width, 0.0, 0.95)
+    bound = 1.0 - margin
+    sol = lsq_linear(A, -b, bounds=(-bound, bound), max_iter=200)
     alpha = sol.x
     if not closed:
         alpha[0] = alpha[-1] = 0.0  # pin free-segment ends to the centerline

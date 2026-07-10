@@ -87,9 +87,10 @@ else:
             # Track grip multiplier scales the tyre friction coefficient
             grip_mult = float(getattr(st.session_state.circuit,
                                       "grip_multiplier", 1.0))
+            # Racing line is always the driving path (solver default);
+            # the Track-page toggle is visualization-only.
             solver_config = {
                 "coef_aderencia": vp.tire.friction_coefficient * grip_mult,
-                "use_racing_line": st.session_state.get("use_racing_line", False),
             }
 
             # Construct result filepath

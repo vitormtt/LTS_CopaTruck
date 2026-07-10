@@ -320,16 +320,18 @@ def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
 
 
 
-def _driving_line(circuit) -> tuple:
+def _driving_line(circuit, vehicle_width_m: float = 0.0) -> tuple:
     """Racing-line (x, y) for the circuit, cached on the circuit object.
 
     Falls back to the centerline when the circuit lacks boundary channels.
-    The line depends only on track geometry, so it is computed once and
-    reused across the many solver calls of an optimization sweep.
+    The line depends on track geometry AND the vehicle width (a wider
+    vehicle has a narrower usable corridor), so the cache is keyed by
+    width — switching vehicle models recomputes the line.
     """
-    cached = getattr(circuit, "_racing_line_xy", None)
-    if cached is not None:
-        return cached
+    key = round(float(vehicle_width_m), 3)
+    cache = getattr(circuit, "_racing_line_xy", None)
+    if isinstance(cache, dict) and key in cache:
+        return cache[key]
 
     x, y = circuit.centerline_x, circuit.centerline_y
     have_bounds = all(
@@ -344,13 +346,16 @@ def _driving_line(circuit) -> tuple:
         right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
         # Closed loop when the ends nearly meet.
         closed = bool(np.hypot(x[0] - x[-1], y[0] - y[-1]) < 5.0)
-        rl = compute_racing_line(center, left, right, closed=closed)
+        rl = compute_racing_line(center, left, right, closed=closed,
+                                 vehicle_width_m=vehicle_width_m)
         result = (rl.x, rl.y)
     else:
         result = (np.asarray(x, dtype=float), np.asarray(y, dtype=float))
 
     try:
-        circuit._racing_line_xy = result
+        if not isinstance(cache, dict):
+            circuit._racing_line_xy = cache = {}
+        cache[key] = result
     except (AttributeError, TypeError):
         pass  # circuit may be immutable; recompute next call
     return result
@@ -562,6 +567,9 @@ def _bias_limited_decel(
 
 _G = 9.81           # [m/s²]
 _RHO_AIR = 1.225    # [kg/m³]
+# Tyre section width added to the axle track to approximate the vehicle's
+# structural width for the racing-line corridor (295/80 R22.5 → 0.295 m).
+_TYRE_SECTION_WIDTH_M = 0.295
 # Output sign of the lateral-accel channel: +1 → positive Ay = left turn
 # (kappa > 0). Flip to -1.0 if a reference logger uses the opposite mount.
 _AY_SIGN = 1.0
@@ -1392,7 +1400,14 @@ def run_simulation(
     torque_map_rpm = params_eff.engine.torque_curve_rpm
     torque_map_nm  = params_eff.engine.torque_curve_nm
 
-    driving_path = _driving_line(circuit) if getattr(config, "use_racing_line", False) else None
+    # The racing line IS the driving path (operator directive 2026-07-10):
+    # a hot lap never follows the centerline. use_racing_line=False remains
+    # only as an explicit debug/centerline-baseline escape hatch. The
+    # corridor is narrowed by the vehicle's structural width (track width
+    # plus one tyre section), so different vehicles get different lines.
+    vehicle_width = float(p.track_width) + _TYRE_SECTION_WIDTH_M
+    driving_path = _driving_line(circuit, vehicle_width) \
+        if getattr(config, "use_racing_line", True) else None
     x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit, driving_path)
 
     mu          = params_eff.tire.friction_coefficient
@@ -1580,9 +1595,9 @@ def run_bicycle_model(
         track_temperature_c=effective_track_temp,
         tyre_compound="slick_dry",
         export_driver_inputs=True,
-        use_racing_line=bool(config.get("use_racing_line", False)),
-        # Qualifying defaults to the flying-lap periodic start (a hot lap by
-        # definition); pass False explicitly to reproduce the cold launch.
+        # Racing line and flying start are the physical defaults for a hot
+        # lap; pass False explicitly for centerline/cold-launch baselines.
+        use_racing_line=bool(config.get("use_racing_line", True)),
         use_flying_lap_start=bool(config.get("use_flying_lap_start", True)),
     )
     # Propagate the vehicle's cold tyre pressure into the setup so the

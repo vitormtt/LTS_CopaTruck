@@ -14,13 +14,31 @@ from .helpers import DATA_PATH, load_hdf5, init_session_state
 from src.visualization.theme import ACCENT, EDGE_WHITE
 
 
+# Tyre section width added to the axle track for the racing-line corridor —
+# keep in sync with the solver's _TYRE_SECTION_WIDTH_M (295/80 R22.5).
+_TYRE_SECTION_WIDTH_M = 0.295
+
+
+def _vehicle_width_m() -> float:
+    """Structural width of the saved vehicle (track + one tyre section)."""
+    vp = st.session_state.get("vehicle_params")
+    if vp is None:
+        return 0.0
+    return float(vp.mass_geometry.track_width_avg) + _TYRE_SECTION_WIDTH_M
+
+
 def _racing_line_plot_xy(circuit, plot_data) -> tuple:
-    """Racing line projected into the plot's rotated coordinate frame."""
+    """Racing line projected into the plot's rotated coordinate frame.
+
+    Uses the saved vehicle's width so the drawn line matches the corridor
+    the solver actually drives.
+    """
     center = np.column_stack([circuit.centerline_x, circuit.centerline_y])
     left = np.column_stack([circuit.left_boundary_x, circuit.left_boundary_y])
     right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
     closed = bool(np.hypot(*(center[0] - center[-1])) < 5.0)
-    rl = compute_racing_line(center, left, right, closed=closed)
+    rl = compute_racing_line(center, left, right, closed=closed,
+                             vehicle_width_m=_vehicle_width_m())
     # Same rotation load_hdf5 applies: x_plot = -(y - y0), y_plot = x - x0.
     x0, y0 = circuit.centerline_x[0], circuit.centerline_y[0]
     return -(rl.y - y0), (rl.x - x0)
@@ -76,12 +94,12 @@ def pista_page() -> None:
              "Calibrate it so the sim lap matches a real reference lap.",
     )
 
-    st.session_state.use_racing_line = st.toggle(
-        "Drive the racing line", value=st.session_state.get("use_racing_line", False),
-        help="Solve on the minimum-curvature racing line within the track "
-             "boundaries instead of the centerline. Much closer to real "
-             "(the centerline is not the fast path). Off = simple point-mass "
-             "baseline (the Hase product).",
+    st.session_state.show_racing_line = st.toggle(
+        "Show racing line on map",
+        value=st.session_state.get("show_racing_line", True),
+        help="Visualization only. The solver ALWAYS drives the minimum-"
+             "curvature racing line (narrowed by the vehicle's width) — "
+             "this toggle just draws/hides it on the map below.",
     )
 
     if st.session_state.track_grip_mult != st.session_state.saved_track_grip_mult:
@@ -131,7 +149,7 @@ def pista_page() -> None:
         mode="lines", name="Centerline",
         line=dict(color=ACCENT, width=1.2, dash="dash"),
     ))
-    if st.session_state.get("use_racing_line", False):
+    if st.session_state.get("show_racing_line", True):
         rlx, rly = _racing_line_plot_xy(circuit_c, plot_data)
         fig.add_trace(go.Scatter(
             x=rlx, y=rly, mode="lines", name="Racing line",

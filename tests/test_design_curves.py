@@ -96,3 +96,20 @@ def test_resistance_curve_monotonic_and_positive():
     v, r = resistance_curve(4950.0, 0.74, 8.7, 220.0)
     assert np.all(r > 0.0)
     assert np.all(np.diff(r) > 0.0)                   # drag dominates, rising
+
+
+# --- Racing line vehicle-width corridor -------------------------------
+
+def test_racing_line_width_narrows_corridor():
+    from src.tracks.racing_line import compute_racing_line
+    # Circular track, 10 m wide: plenty of corridor for a point, less for a truck
+    t = np.linspace(0.0, 2.0 * np.pi, 120, endpoint=False)
+    center = np.column_stack([100.0 * np.cos(t), 100.0 * np.sin(t)])
+    left = np.column_stack([105.0 * np.cos(t), 105.0 * np.sin(t)])
+    right = np.column_stack([95.0 * np.cos(t), 95.0 * np.sin(t)])
+    point = compute_racing_line(center, left, right, closed=True)
+    truck = compute_racing_line(center, left, right, closed=True,
+                                vehicle_width_m=2.5)
+    # Truck line must stay strictly inside the point-width envelope
+    assert np.max(np.abs(truck.alpha)) < np.max(np.abs(point.alpha))
+    assert np.max(np.abs(truck.alpha)) <= 1.0 - (2.5 / 2.0) / 5.0 + 1e-6

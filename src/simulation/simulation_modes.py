@@ -85,8 +85,9 @@ class SimulationConfig:
     tyre_compound: str = "slick_dry"
     export_driver_inputs: bool = True
     # Drive the minimum-curvature racing line instead of the centerline.
-    # Default False keeps the point-mass QSS baseline (Hase product) intact.
-    use_racing_line: bool = False
+    # Default True since 2026-07-10 (operator directive): a hot lap never
+    # follows the centerline. False = explicit centerline-baseline debug.
+    use_racing_line: bool = True
     # Start the qualifying lap from the flying-lap periodic speed (v0 = exit
     # speed of the closed lap) instead of the cold ~36 km/h launch. Default
     # True since 2026-07-10: a qualifying hot lap IS a flying lap by
