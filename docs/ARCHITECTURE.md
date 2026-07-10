@@ -1,31 +1,49 @@
 # Architecture — LapTimeSimulator_CopaTruck
 
 > SoT técnico do repo. CLAUDE.md aponta para cá; não duplicar arquitetura no CLAUDE.md.
-> Última atualização: 2026-06-27.
+> Última atualização: 2026-07-10 (auditoria de docs; árvore + defaults físicos).
 
 ## Project Structure
 
 ```
 LapTimeSimulator_CopaTruck/
 ├── src/
-│   ├── simulation/          ← lap_time_solver.py — core solver (two-pass)
-│   ├── vehicle/             ← VehicleParams and sub-dataclasses
-│   ├── tracks/              ← HDF5 reader/writer, TUM FTM integration
+│   ├── simulation/          ← lap_time_solver.py (two-pass QSS) ·
+│   │                          simulation_modes.py · telemetry.py (math channels)
+│   ├── vehicle/             ← parameters.py (VehicleParams) · setup.py ·
+│   │                          brake_hardware.py (Limpert) · tire_model.py (MF viz) ·
+│   │                          transmission_curves.py (design viz) · fleet/ · units.py
+│   ├── analysis/            ← derived channels: brake_lockup.py ·
+│   │                          handling_balance.py · driver_report.py · overlay.py ·
+│   │                          race_report.py
+│   ├── tracks/              ← hdf5.py · racing_line.py (min-curvature, vehicle-width
+│   │                          corridor) · generator.py (TUM FTM/OSM) · circuit.py
 │   ├── database/            ← PostgreSQL manager + schema (JSON fallback)
-│   ├── visualization/       ← Streamlit interface (interface.py)
-│   ├── optimization/        ← setup optimization (future)
+│   ├── visualization/       ← interface.py (router) · theme.py · components/
 │   └── results/             ← exported .csv telemetry
 ├── tracks/                  ← circuit files (.hdf5)
-├── data/                    ← vehicle presets (.json)
+├── data/                    ← vehicle presets (.json) — SINGLE preset
+│                              volkswagen_31320 (merged 2026-07-10)
 ├── tests/                   ← pytest — must pass 100% before any push
-├── Dockerfile               ← multi-stage: base (deps) → app (Streamlit)
-├── docker-compose.yml       ← db (Postgres 16) + app; .env-driven, healthchecked
-├── docker-compose.override.yml ← dev bind-mounts + hot-reload
-├── Makefile                 ← up/down/seed/test/logs entry points
-├── requirements.txt
-├── pyproject.toml
+├── docs/                    ← ver docs/README.md (índice + status)
+├── Dockerfile / docker-compose.yml / Makefile
+├── pyproject.toml           ← deps + ruff + mypy (dev group)
 └── README.md
 ```
+
+## Physical defaults (2026-07-10)
+
+- **Racing line SEMPRE é o driving path** (`use_racing_line` default True;
+  False = baseline de debug na centerline). O corredor é estreitado pela
+  largura estrutural do veículo (bitola + 1 seção de pneu) — veículos
+  diferentes geram linhas diferentes; cache por largura.
+- **Qualifying = flying lap** (`use_flying_lap_start` default True, BC
+  periódica, v0 ≈ velocidade de saída da volta).
+- **Freio derivado de hardware** quando blocos `brake_hw_*` presentes no
+  preset (Limpert; Knorr SN7 + Fras-le PD/116 researched). Grip-limited.
+- **abs_enabled=False** (Copa Truck sem ABS) com modulação bias-aware.
+- ⚠️ µ=1.6 é fudge exposto (−8.7 s vs âncora Cascavel) — recalibração via
+  pipeline track/µ (docs/Validação de Lap Sim.md) é o próximo épico.
 
 ## Containers & Database
 

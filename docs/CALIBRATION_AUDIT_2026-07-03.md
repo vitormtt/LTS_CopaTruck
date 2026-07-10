@@ -1,5 +1,7 @@
 # Auditoria de calibração dos presets — 2026-07-03
 
+> **⚠️ PARCIALMENTE SUPERSEDED (2026-07-10)** — working tree/opção A-B: resolvido (preset único fundido). Pesquisas: P7 freio ✅ · pista ✅ (doc Validação) · P3 aero parcial (Cx 0.74 do .xrk; falta A_front/Cl) · **P4 µ, P1 governador, P2 massa/CG/Iz, P5 ratios por equipe, P6 curvas torque = ABERTOS**. Estado vivo: SPM §0.
+
 > Contexto: sprint de validação paga (Pérez). Auditoria de `data/vehicle_models.json`
 > (working tree, editado 2026-07-02 21:04, **não commitado**) contra
 > `docs/COPA_TRUCK_POWERTRAIN_RESEARCH.md`, regulamento CBA 2025/2026 e lap times

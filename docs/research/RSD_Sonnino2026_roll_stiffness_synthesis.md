@@ -1,5 +1,7 @@
 # Roll Stiffness Distribution & Handling Balance — Sonnino et al. 2026
 
+> **STATUS 2026-07-10**: oportunidade #1 (canal handling_balance) ✅ FEITA. Restam: #2 yaw-ref transiente (muda solver) · #3 harness ISO (saru-os) · plot balance por curva.
+
 > **Source:** S. Sonnino, S. Melzi, F. Pirchio, P. Caresia, A. Manzoni, G. Vaini,
 > *"Active control of vehicle lateral dynamics through roll stiffness distribution:
 > Simulation and driver-in-the-loop testing"*, **Control Engineering Practice 168 (2026) 106735**.

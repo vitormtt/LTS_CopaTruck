@@ -1,5 +1,7 @@
 # Distribuição do LTS CopaTruck para o Pérez — avaliação de opções
 
+> **STATUS 2026-07-10**: decisão (hosted VPS + auth) segue válida, deploy NÃO iniciado. App roda local via JSON fallback.
+
 > Criado 2026-07-02 (sprint R$5k). Objetivo: Pérez roda e testa à vontade, salva
 > dados/exports na máquina dele, e tem ZERO acesso ao código-fonte.
 

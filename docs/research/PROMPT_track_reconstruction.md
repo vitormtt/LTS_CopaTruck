@@ -1,5 +1,7 @@
 # Prompt de pesquisa — reconstrução e validação de modelo de pista p/ lap sim
 
+> **✅ RESPONDIDO (2026-07-10)** — resposta em `docs/Validação de Lap Sim.md` (pipeline TUM+ICP+Frenet + gates). IMPLEMENTAÇÃO pendente = próximo épico. Prompt mantido como registro.
+
 > **Regra**: Vitor roda no Gemini/Perplexity (deep research). Agente só preparou.
 > Contexto: LapTimeSimulator_CopaTruck. Precisamos do centerline + larguras de
 > Interlagos (e Cascavel) fiéis ao real, e de um método para validar o modelo

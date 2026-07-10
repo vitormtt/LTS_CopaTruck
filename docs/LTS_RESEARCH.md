@@ -1,5 +1,7 @@
 # LTS — Estado da Arte, Iterações e Roteiro de Aprendizado
 
+> **REFERÊNCIA VIVA** — fundamentação teórica. Nota 2026-07-10: o roteiro de iterações foi absorvido por FULL_PHYSICS_PLAN.md; centerline ruidoso do Interlagos = mitigado pela racing line always-on, solução definitiva no pipeline track/µ.
+
 > Pesquisa de fundamentação para o LTS Copa Truck (SARU Dynamics).
 > Data: 2026-06-11.
 

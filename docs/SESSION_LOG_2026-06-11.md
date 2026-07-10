@@ -1,5 +1,7 @@
 # Session Log — 2026-06-11 — Physics v2 + Architecture + Learning
 
+> **HISTÓRICO (2026-06-11)** — log de sessão preservado. Não reflete o estado atual; ver SPM.md.
+
 > Running log para handoff em caso de limite de sessão. Atualizar a cada merge.
 
 ## Decisões de modelagem (aprovadas pelo Vitor)

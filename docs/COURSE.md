@@ -1,5 +1,7 @@
 # SARU Course — Ementa do Curso LTS Copa Truck
 
+> **STATUS 2026-07-10**: esqueleto congelado — aguarda kickoff com Pérez.
+
 > **Status**: esqueleto — preencher com Vitor e Pérez
 
 ## Visão geral

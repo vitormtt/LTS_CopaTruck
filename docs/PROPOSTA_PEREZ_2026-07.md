@@ -1,5 +1,7 @@
 # Proposta Pérez — mensagem final (WhatsApp) + plano de envio
 
+> **HISTÓRICO** — proposta enviada (prazo 08/07). Doc preservado como registro; estado da parceria vive no SPM.
+
 > Aprovada na sessão global 2026-07-02. Enviar de manhã. Prazo de resposta: 08/07.
 
 ## Plano de envio

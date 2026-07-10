@@ -1,5 +1,7 @@
 # Copa Truck — Dossiê de Powertrain, Transmissão e Pneus (2024–2026)
 
+> **REFERÊNCIA VIVA (dossiê CBA)** — 2026-07-10: drivetrain ZF6/3.42/0.52 PROMOVIDO ao preset único. Ratios ainda 🟡 (P5 confirma por equipe); torque curve segue estimativa (P6 aberto).
+
 ## 0. Regulamento técnico oficial CBA — verificado em 2026-06-12 🟢
 
 PDFs oficiais (cba.org.br/upload/downloads):

@@ -1,5 +1,7 @@
 # **Relatório de Engenharia: Dimensionamento Paramétrico e Análise Dinâmica do Sistema de Freios da Copa Truck**
 
+> **RESEARCH CONSOLIDADA ✅ APLICADA (2026-07-10)** — pacote §9 wired no preset + brake_hardware.py (commits 1b33bd2/40cf6f5, editável na UI). ⚠️ Ref 17 = unknown_url: alavancagem 15.6:1, pressões equiv. 314/263, µ 0.48 e R 0.1725 tratados como ESTIMADOS até 2ª fonte. Sanity §8 confirmado no sim (teto 5.5g, grip-limited).
+
 ## **1\. Fundamentos da Dinâmica de Frenagem em Veículos Pesados de Competição**
 
 A modelagem computacional da dinâmica veicular para caminhões de corrida, especificamente os homologados para a Copa Truck sob a chancela da Confederação Brasileira de Automobilismo (CBA), exige um rigor matemático que transcende as aproximações empíricas comumente utilizadas em simuladores de turismo ou fórmula. O objetivo central desta análise é fornecer a fundamentação teórica e os dados empíricos necessários para substituir variáveis arbitrárias de força máxima de frenagem por grandezas físicas derivadas do hardware real. Esta substituição é imperativa para a correta alimentação da cadeia de cálculo de Limpert, implementada na arquitetura do solver físico, garantindo que o limite de desaceleração seja uma consequência emergente da saturação dos pneus e das capacidades termomecânicas do sistema, e não um teto imposto artificialmente.  

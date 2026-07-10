@@ -1,5 +1,7 @@
 # UI/UX Audit — LTS Copa Truck
 
+> **⚠️ PARCIALMENTE SUPERSEDED (2026-07-10)** — feitos desde o audit: P1-01 tabs ✅ (Results em 5 tabs) · P1-02 theme.py ✅ · setores redesenhados ✅ · axis titles ✅ · design views (pneu/transmissão/freio) ✅. Backlog restante do doc segue válido como ideias, priorizar via SPM.
+
 > Autor: Claude (Opus 4.7) — 2026-07-05
 > Branch: `feature/claude-product-upgrade`
 > Escopo: apenas front-end Streamlit (`src/visualization/**`).

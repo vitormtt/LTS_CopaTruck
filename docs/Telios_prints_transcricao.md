@@ -1,5 +1,7 @@
 # Transcrição de Prints — Telios KPI (2026-07-06)
 
+> **REFERÊNCIA UX VIVA** — benchmark do race report nível-pro (47 plots). Alvo de evolução do PDF/Race Report.
+
 > Fonte: 11 screenshots de vídeo-demo no LinkedIn do **Telios KPI** (analisador/gerador de
 > relatórios KPI para telemetria sim-racing, UI em italiano). Prints em `docs/Telios imagens/`.
 > Transcrição refeita em 2026-07-07 por visão direta (a rodada anterior via API Gemini falhou

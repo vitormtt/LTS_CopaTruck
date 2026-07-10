@@ -1,5 +1,7 @@
 # Prompt de pesquisa — hardware de freio Copa Truck (para derivar max_brake_force)
 
+> **✅ RESPONDIDO (2026-07-10)** — resposta em `docs/Especificações Freio Copa Truck.md`; valores APLICADOS (preset + brake_hardware wired, commits 1b33bd2/40cf6f5). Prompt mantido como registro.
+
 > Regra de ouro: Vitor executa no Gemini/Perplexity. Agente só prepara.
 > Objetivo: substituir o `max_brake_force`/`max_deceleration` mágico por um valor
 > DERIVADO do hardware real, via `src/vehicle/brakes.py` (cadeia de Limpert já implementada).

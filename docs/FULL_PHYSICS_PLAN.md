@@ -1,5 +1,11 @@
 # Full-Physics Epic — Plano (2026-07-06)
 
+> **STATUS 2026-07-10**: F1 ✅ FEITA e promovida (racing line always-on +
+> corredor por largura de veículo). F3 nível HARDWARE ✅ (Limpert wired,
+> valores researched). Restam: F2 3DOF · F3 THERMAL · F4 viz solver · F5
+> pistas calendário. **Pré-requisito novo nº 1: pipeline track/µ**
+> (docs/Validação de Lap Sim.md) — recalibra µ antes de qualquer fase nova.
+
 > Virada estratégica: lts-copatruck vira o sim avançado (SPM §1). Este doc é o
 > roadmap faseado. Cada fase: TDD + cross-validation vs .xrk real (guardrail) +
 > reporta Δ lap antes de commit. O QSS ponto-massa simples continua **selecionável**
@@ -13,7 +19,10 @@ Racing line = flag `use_racing_line` (default on no avançado).
 
 ## Fases (ordem por dependência + valor)
 
-### Fase 1 — Racing line (FUNDAÇÃO) ⟵ começa aqui
+### Fase 1 — Racing line (FUNDAÇÃO) ✅ FEITA (2026-07-06 → 10)
+> Entregue: min-curvature (`racing_line.py`), solver dirige a linha SEMPRE
+> (2026-07-10, diretiva), corredor descontado pela largura do veículo,
+> cache por largura, toggle da UI é viz-only.
 - **Por quê 1º**: driver hoje segue centerline (errado, ponto 6). É a raiz do erro
   de canais e do Interlagos +7.5s. Metodologia ABERTA (TUM, Veneri&Massaro) — não é IP.
 - `src/tracks/racing_line.py`: min-curvature path dentro das boundaries (QP scipy sobre
@@ -28,7 +37,10 @@ Racing line = flag `use_racing_line` (default on no avançado).
 - Atrás de `SolverModel.QSS_3DOF`. QSS_POINT_MASS intacto.
 - Cross-val: ARB deve variar lap; balanço bate com telemetria (yaw, Δv por trecho).
 
-### Fase 3 — Modelos de freio (simples → hardware → térmico)
+### Fase 3 — Modelos de freio (simples → hardware ✅ → térmico)
+> HARDWARE entregue 2026-07-10: Limpert wired com pacote researched
+> (Knorr SN7 2×68mm, 314/263 bar equiv, PD/116 µ0.48, R 0.1725) — editável
+> na UI, grip-limited (Δlap 0). Falta THERMAL (fade validado vs dados).
 - `BrakeModel.SIMPLE` (atual) · `HARDWARE` (Limpert, `brake_hardware.py` já existe:
   pistão/pinça/pressão/μ pastilha/raio disco → força) · `THERMAL` (fade por temp de disco).
 - **Térmico precisa validação** (Vitor pediu explicitamente) — re-introduz o que era
