@@ -31,6 +31,58 @@ from src.visualization.theme import (
 )
 
 
+# Sector/segment analysis: Brazilian circuits run 3 timing sectors; corners
+# are detected where sustained lateral load exceeds the threshold below.
+_N_SECTORS = 3
+_CORNER_LAT_G = 0.30          # |a_lat| above this = cornering [G]
+_MIN_SEGMENT_M = 30.0         # merge blips shorter than this [m]
+
+
+def _lap_segments(dist, time_s, v_kmh, alat_g) -> list:
+    """Split the lap into corner/straight segments from the lateral-G trace.
+
+    Returns:
+        List of dicts: label, kind ('corner'|'straight'), from_m, to_m,
+        time_s, v_min, v_max, peak_lat_g.
+    """
+    is_corner = np.abs(alat_g) > _CORNER_LAT_G
+    # Segment boundaries where the corner flag flips
+    change = np.flatnonzero(np.diff(is_corner.astype(int))) + 1
+    starts = np.concatenate([[0], change])
+    ends = np.concatenate([change, [len(dist)]])
+
+    raw = [(int(a), int(b), bool(is_corner[a])) for a, b in zip(starts, ends)]
+    # Merge segments shorter than the blip threshold into the previous one
+    merged = []
+    for a, b, corner in raw:
+        length = dist[b - 1] - dist[a]
+        if merged and length < _MIN_SEGMENT_M:
+            merged[-1] = (merged[-1][0], b, merged[-1][2])
+        else:
+            merged.append((a, b, corner))
+
+    segments, n_corner, n_straight = [], 0, 0
+    for a, b, corner in merged:
+        sl = slice(a, b)
+        if corner:
+            n_corner += 1
+            label = f"Turn {n_corner}"
+        else:
+            n_straight += 1
+            label = f"Straight {n_straight}"
+        segments.append({
+            "label": label,
+            "kind": "corner" if corner else "straight",
+            "from_m": float(dist[a]),
+            "to_m": float(dist[b - 1]),
+            "time_s": float(time_s[b - 1] - time_s[a]),
+            "v_min": float(np.min(v_kmh[sl])),
+            "v_max": float(np.max(v_kmh[sl])),
+            "peak_lat_g": float(np.max(np.abs(alat_g[sl]))),
+        })
+    return segments
+
+
 def generate_pdf_report(res: dict, circuit: Any, meta: dict, vehicle_name: str, filepath: str,
                         params: dict | None = None) -> None:
     """Generate a clean PDF engineering report using ReportLab."""
@@ -283,7 +335,6 @@ def _render_simulation_history() -> None:
 def resultados_page() -> None:
     st.header("Results")
     st.caption("Telemetry dashboard, KPIs and exports for the last simulated lap.")
-    _render_simulation_history()
     init_session_state()
 
     # --- Sweep Results (PCP) ---
@@ -332,7 +383,14 @@ def resultados_page() -> None:
     time_wot = float(np.sum((alon_g > 0.05) * dt_arr))
     time_brake = float(np.sum((alon_g < -0.1) * dt_arr))
     max_lat_g = float(np.max(np.abs(alat_g)))
-    max_roll = float(np.max(np.abs(res.get('roll_angle_profile', [0]))))
+    # Quasi-static cabin roll derived from lateral acceleration and the
+    # total roll stiffness: phi = m·ay·h_cg / (k_roll_f + k_roll_r) [rad].
+    # k_roll is an uncalibrated preset value — treat magnitude as indicative.
+    k_roll_total = float(vp.k_roll_front + vp.k_roll_rear)
+    roll_deg = np.degrees(
+        vp.mass_geometry.mass * (alat_g * g) * vp.mass_geometry.cg_height
+        / max(k_roll_total, 1e-9))
+    max_roll = float(np.max(np.abs(roll_deg)))
     t_pneu_fim = float(res['temp_pneu'][-1])
     p_pneu_arr = res.get('pressao_pneu', np.ones(len(dist)) * 2.0)
     p_pneu_fim = float(p_pneu_arr[-1])
@@ -436,7 +494,8 @@ def resultados_page() -> None:
             name='Speed',
         ))
         fig_map.update_layout(
-            xaxis_title='x (m)', yaxis_title='y (m)',
+            xaxis_title='x — local track frame (m)',
+            yaxis_title='y — local track frame (m)',
             height=500, margin=dict(l=0, r=0, t=35, b=0),
         )
         fig_map.update_yaxes(scaleanchor='x', scaleratio=1)
@@ -450,7 +509,9 @@ def resultados_page() -> None:
             fig_v = go.Figure()
             fig_v.add_trace(go.Scatter(x=dist, y=v_kmh, mode='lines',
                                        name='Speed', line=dict(color=ACCENT, width=2)))
-            fig_v.update_layout(title='Speed Trace (km/h)', height=280,
+            fig_v.update_layout(title='Speed Trace', height=280,
+                                xaxis_title='Distance (m)',
+                                yaxis_title='Speed (km/h)',
                                 margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_v, width="stretch")
 
@@ -460,7 +521,9 @@ def resultados_page() -> None:
                                        name='Lat G', line=dict(color=LATERAL, width=2)))
             fig_a.add_trace(go.Scatter(x=dist, y=alon_g, mode='lines',
                                        name='Long G', line=dict(color=POSITIVE, width=2)))
-            fig_a.update_layout(title='Longitudinal & Lateral Accelerations (G)', height=280,
+            fig_a.update_layout(title='Longitudinal & Lateral Accelerations', height=280,
+                                xaxis_title='Distance (m)',
+                                yaxis_title='Acceleration (G)',
                                 margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_a, width="stretch")
 
@@ -472,7 +535,9 @@ def resultados_page() -> None:
                                           line=dict(color=ACCENT, width=2)))
             fig_temp.add_hline(y=95.0, line_dash='dash', line_color=POSITIVE,
                                annotation_text='Optimum Target')
-            fig_temp.update_layout(title='Tyre Temperature (°C)', height=280,
+            fig_temp.update_layout(title='Tyre Temperature', height=280,
+                                   xaxis_title='Distance (m)',
+                                   yaxis_title='Temperature (°C)',
                                    margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_temp, width="stretch")
 
@@ -481,7 +546,9 @@ def resultados_page() -> None:
             fig_press.add_trace(go.Scatter(x=dist, y=p_pneu_arr, mode='lines',
                                            name='Tyre Press',
                                            line=dict(color=REFERENCE, width=2)))
-            fig_press.update_layout(title='Tyre Pressure (bar)', height=280,
+            fig_press.update_layout(title='Tyre Pressure', height=280,
+                                    xaxis_title='Distance (m)',
+                                    yaxis_title='Pressure (bar)',
                                     margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_press, width="stretch")
 
@@ -505,6 +572,7 @@ def resultados_page() -> None:
             fig_rpm.update_yaxes(title_text='Gear', secondary_y=True, showgrid=False,
                                  range=[0.5, max_gear + 0.5], dtick=1)
             fig_rpm.update_layout(title='Engine RPM + Gear', height=280,
+                                  xaxis_title='Distance (m)',
                                   margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_rpm, width="stretch")
 
@@ -519,7 +587,9 @@ def resultados_page() -> None:
                             colorbar=dict(title='G-Sum')),
             ))
             fig_ggv.update_layout(
-                title='GGV Diagram (Color = G-Sum Magnitude)', xaxis_title='Lat G', yaxis_title='Long G',
+                title='GGV Diagram (Color = G-Sum Magnitude)',
+                xaxis_title='Lateral acceleration (G)',
+                yaxis_title='Longitudinal acceleration (G)',
                 height=400, yaxis_range=[-1.5, 1.5], xaxis_range=[-1.5, 1.5],
                 margin=dict(l=0, r=0, t=30, b=0),
             )
@@ -542,6 +612,8 @@ def resultados_page() -> None:
             fig_bt.add_trace(go.Scatter(x=dist, y=g_sum, mode='lines',
                                         name='G-Sum Magnitude', line=dict(color=HIGHLIGHT, width=2, dash='dot')))
             fig_bt.update_layout(title='Braking Transition (G-Sum)', height=280,
+                                 xaxis_title='Distance (m)',
+                                 yaxis_title='Acceleration (G)',
                                  margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_bt, width="stretch")
 
@@ -552,7 +624,9 @@ def resultados_page() -> None:
             fig_fuel.add_trace(go.Scatter(
                 x=dist, y=res['consumo'], mode='lines',
                 name='Fuel used', line=dict(color=ACCENT, width=2)))
-            fig_fuel.update_layout(title='Cumulative Fuel Used (L)', height=280,
+            fig_fuel.update_layout(title='Cumulative Fuel Used', height=280,
+                                   xaxis_title='Distance (m)',
+                                   yaxis_title='Fuel used (L)',
                                    margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_fuel, width="stretch")
         with col_f2:
@@ -564,7 +638,9 @@ def resultados_page() -> None:
             fig_flow.add_trace(go.Scatter(
                 x=dist, y=fuel_flow, mode='lines',
                 name='Fuel flow', line=dict(color=ACCENT, width=2)))
-            fig_flow.update_layout(title='Fuel Flow (L/h)', height=280,
+            fig_flow.update_layout(title='Fuel Flow', height=280,
+                                   xaxis_title='Distance (m)',
+                                   yaxis_title='Fuel flow (L/h)',
                                    margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_flow, width="stretch")
 
@@ -574,21 +650,26 @@ def resultados_page() -> None:
         # --- Roll & Slip ---
         col_g7, col_g8 = st.columns(2)
         with col_g7:
-            if 'roll_angle_profile' in res:
-                fig_roll = go.Figure()
-                fig_roll.add_trace(go.Scatter(
-                    x=dist, y=res['roll_angle_profile'], mode='lines',
-                    name='Roll angle', line=dict(color=REFERENCE, width=2)))
-                fig_roll.update_layout(title='Cabin Roll Angle (°)', height=280,
-                                       margin=dict(l=0, r=0, t=30, b=0))
-                st.plotly_chart(fig_roll, width="stretch")
+            fig_roll = go.Figure()
+            fig_roll.add_trace(go.Scatter(
+                x=dist, y=roll_deg, mode='lines',
+                name='Roll angle', line=dict(color=REFERENCE, width=2)))
+            fig_roll.update_layout(title='Cabin Roll Angle', height=280,
+                                   xaxis_title='Distance (m)',
+                                   yaxis_title='Roll angle (deg)',
+                                   margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig_roll, width="stretch")
+            st.caption("Quasi-static: φ = m·a_lat·h_cg / k_roll. Magnitude "
+                       "indicative — k_roll preset value is unsourced.")
         with col_g8:
             slip_data = res.get('front_slip_angle_deg', np.zeros(len(dist)))
             fig_slip = go.Figure()
             fig_slip.add_trace(go.Scatter(
                 x=dist, y=slip_data, mode='lines',
                 name='Slip angle', line=dict(color=HIGHLIGHT, width=2)))
-            fig_slip.update_layout(title='Front Slip Angle (°)', height=280,
+            fig_slip.update_layout(title='Front Slip Angle', height=280,
+                                   xaxis_title='Distance (m)',
+                                   yaxis_title='Slip angle (deg)',
                                    margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_slip, width="stretch")
 
@@ -685,31 +766,58 @@ def resultados_page() -> None:
         # Sector Timing Tab
         st.markdown("---")
         st.subheader("Sector timing")
+        st.caption(
+            "Three sectors (equal thirds — official split marks not yet "
+            "surveyed). Expand a sector to break it into corners and "
+            "straights with per-segment times.")
         track_len = float(dist[-1])
-        n_sectors = st.slider("Number of sectors", 3, 12, 3, key="n_sectors")
-        sector_boundaries = np.linspace(0, track_len, n_sectors + 1)
+        sector_boundaries = np.linspace(0, track_len, _N_SECTORS + 1)
+        segments = _lap_segments(dist, res['time'], v_kmh, alat_g)
+
         sector_rows = []
-        for s_idx in range(n_sectors):
+        for s_idx in range(_N_SECTORS):
             s_start, s_end = sector_boundaries[s_idx], sector_boundaries[s_idx + 1]
             mask = (dist >= s_start) & (dist < s_end)
             if not np.any(mask):
                 continue
             idxs = np.where(mask)[0]
             t_sector = res['time'][idxs[-1]] - res['time'][idxs[0]]
-            v_avg_s = float(np.mean(v_kmh[mask]))
-            v_min_s = float(np.min(v_kmh[mask]))
-            v_max_s = float(np.max(v_kmh[mask]))
             sector_rows.append({
-                "Sector": f"Sector {s_idx+1}",
+                "Sector": f"S{s_idx + 1}",
                 "From (m)": f"{s_start:.0f}",
                 "To (m)": f"{s_end:.0f}",
                 "Time": fmt_laptime(t_sector),
-                "V avg (km/h)": f"{v_avg_s:.1f}",
-                "V min (km/h)": f"{v_min_s:.1f}",
-                "V max (km/h)": f"{v_max_s:.1f}",
+                "Share (%)": f"{t_sector / tempo_total * 100.0:.1f}",
+                "V avg (km/h)": f"{float(np.mean(v_kmh[mask])):.1f}",
+                "V min (km/h)": f"{float(np.min(v_kmh[mask])):.1f}",
+                "V max (km/h)": f"{float(np.max(v_kmh[mask])):.1f}",
             })
         if sector_rows:
-            st.dataframe(pd.DataFrame(sector_rows), width="stretch")
+            st.dataframe(pd.DataFrame(sector_rows), width="stretch",
+                         hide_index=True)
+
+        for s_idx in range(_N_SECTORS):
+            s_start, s_end = sector_boundaries[s_idx], sector_boundaries[s_idx + 1]
+            segs = [sg for sg in segments
+                    if s_start <= (sg["from_m"] + sg["to_m"]) / 2.0 < s_end]
+            if not segs:
+                continue
+            n_c = sum(1 for sg in segs if sg["kind"] == "corner")
+            with st.expander(
+                    f"S{s_idx + 1} breakdown — {n_c} corners, "
+                    f"{len(segs) - n_c} straights"):
+                seg_rows = [{
+                    "Segment": sg["label"],
+                    "From (m)": f"{sg['from_m']:.0f}",
+                    "Length (m)": f"{sg['to_m'] - sg['from_m']:.0f}",
+                    "Time (s)": f"{sg['time_s']:.3f}",
+                    "Δ share (%)": f"{sg['time_s'] / tempo_total * 100.0:.1f}",
+                    "V min (km/h)": f"{sg['v_min']:.1f}",
+                    "V max (km/h)": f"{sg['v_max']:.1f}",
+                    "Peak lat (G)": f"{sg['peak_lat_g']:.2f}",
+                } for sg in segs]
+                st.dataframe(pd.DataFrame(seg_rows), width="stretch",
+                             hide_index=True)
 
     # Compile HTML report if requested
     if html_export_triggered:
@@ -733,3 +841,6 @@ def resultados_page() -> None:
             mime="text/html",
             width="stretch"
         )
+
+    st.markdown("---")
+    _render_simulation_history()
