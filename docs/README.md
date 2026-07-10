@@ -19,13 +19,15 @@
 
 | # | Trabalho | Fonte/spec | Bloqueio |
 |---|---|---|---|
-| 1 | **Pipeline track/µ** (TUM→ICP→Frenet→opt_min_curv→µ do G-G + gates de validação) | `Validação de Lap Sim.md` | nenhum — próximo épico. Fecha o fudge µ=1.6 (−8.7s exposto) |
-| 2 | Pesquisas abertas: **P4 µ pneu · P1 governador · P2 massa/CG/Iz · P5 ratios/equipe · P6 curvas torque** · P3 resto (A_front/Cl) | `CALIBRATION_AUDIT_2026-07-03.md` §5 | Vitor roda (Gemini/Perplexity) |
-| 3 | **F2 3DOF** (ARB vivo) · **F3 THERMAL** (fade validado) · F4 viz solver · F5 pistas calendário | `FULL_PHYSICS_PLAN.md` | #1 primeiro (µ recalibrado) |
-| 4 | Pacejka no solver (TireModel selecionável; hoje é design-view) | SPM §0 p2 | cross-validation |
-| 5 | Deploy hosted p/ Pérez (VPS + auth) | `DISTRIBUTION_OPTIONS.md` | decisão de timing |
-| 6 | Race report nível Telios (pressão/temp por canto/volta) | `Telios_prints_transcricao.md` | — |
-| 7 | k_roll com fonte (roll 18.8° indicativo) · persistir brake_hw/tire_model no schema Postgres · ruff tests/ legado | SPM | — |
+| 1 | **Pipeline track/µ** (TUM→ICP→Frenet→opt_min_curv→µ do G-G + gates). Aumenta o LAP SIMULADO em direção ao real (µ desce de 1.6); validação = canais batendo (RMSE v ≤3 km/h, apex ≤2, G-G ≤0.05G) | `Validação de Lap Sim.md` | nenhum — próximo épico |
+| 2 | Pesquisa **k_roll** (roll 13.3°/g atual = irreal; RSD afeta balance) | `research/PROMPT_roll_stiffness.md` (pronto) | Vitor roda |
+| 3 | Pesquisas restantes: **P2 h_cg/Iz · P5 ratios/equipe · P6 curva de torque completa** · P3 resto (A_front/Cl). *Absorvidos dos docs 07-10: P7 freio ✓ · P4 µ (método+probe .xrk ✓, executa no pipeline) · P1 parcial (radar 160 = zonal, >200 atingível → decisão de modelagem do governador) · P2 massa ✓ (4.800–5.300 kg)* | `CALIBRATION_AUDIT` §5 | Vitor roda |
+| 4 | **Qualy multi-fase** (outlap aquecendo pneu → flying). Pré-req: acoplar temp→grip (hoje decorativo) = épico warmup/pneu #3 | pedido 2026-07-10 | modelo térmico |
+| 5 | **Brake bias por curva** no solver (piloto real ajusta por curva); depois otimizador por-curva. Batch/sweep segue só p/ espaço de SETUP (pressões, asa) | pedido 2026-07-10 | design |
+| 6 | Detecção turn/straight: refinar entry/apex/exit (hoje 6/6 correto em Cascavel, saídas "gordas" até 0.3g) | `results.py _lap_segments` | — |
+| 7 | **F2 3DOF** (ARB vivo) · **F3 THERMAL** · F4 viz solver · F5 pistas calendário | `FULL_PHYSICS_PLAN.md` | #1 primeiro |
+| 8 | Pacejka no solver (TireModel selecionável; hoje design-view) | SPM | cross-validation |
+| 9 | Deploy hosted p/ Pérez · race report nível Telios · persistir brake_hw/tire_model no Postgres · ruff tests/ legado | vários | — |
 
 ## 📚 Referência (vivos, consultar quando precisar)
 

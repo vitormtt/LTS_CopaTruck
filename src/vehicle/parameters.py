@@ -47,6 +47,10 @@ class VehicleMassGeometry:
     track_width_rear: float  # Rear track width [m]
     cg_height: float         # CG height above ground [m]
     Iz: float                # Yaw moment of inertia [kg·m²]
+    # Structural (bodywork) width [m] — narrows the racing-line corridor.
+    # Copa Truck: 2.465 m (CBA reg. Fig. 14: max width at tyre shoulder
+    # 2450 mm +15). 0.0 = derive from track width + one tyre section.
+    vehicle_width: float = 0.0
     Ix: float = 0.0          # Roll moment of inertia [kg·m²] (3DOF+)
     Iy: float = 0.0          # Pitch moment of inertia [kg·m²] (future)
 
@@ -405,6 +409,7 @@ class VehicleParams:
             'lf': mg.lf,
             'lr': mg.lr,
             'h_cg': mg.cg_height,
+            'vehicle_width': mg.vehicle_width,
             'Iz': mg.Iz,
             'track_width': mg.track_width_avg,   # solver expects scalar
             'track_width_front': mg.track_width_front,
@@ -505,6 +510,7 @@ class VehicleParams:
                 track_width_front=tw_front,
                 track_width_rear=tw_rear,
                 cg_height=data.get('h_cg', 1.1),
+                vehicle_width=data.get('vehicle_width', 0.0),
                 Iz=data.get('Iz', 15000.0),
                 Ix=data.get('Ix', 2000.0),
                 Iy=data.get('Iy', 18000.0),

@@ -20,11 +20,14 @@ _TYRE_SECTION_WIDTH_M = 0.295
 
 
 def _vehicle_width_m() -> float:
-    """Structural width of the saved vehicle (track + one tyre section)."""
+    """Structural width of the saved vehicle — preset value (sourced) or
+    the derived fallback (track + one tyre section), same as the solver."""
     vp = st.session_state.get("vehicle_params")
     if vp is None:
         return 0.0
-    return float(vp.mass_geometry.track_width_avg) + _TYRE_SECTION_WIDTH_M
+    sourced = float(getattr(vp.mass_geometry, "vehicle_width", 0.0))
+    return sourced or (float(vp.mass_geometry.track_width_avg)
+                       + _TYRE_SECTION_WIDTH_M)
 
 
 def _racing_line_plot_xy(circuit, plot_data) -> tuple:

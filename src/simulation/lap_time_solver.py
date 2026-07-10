@@ -1403,9 +1403,11 @@ def run_simulation(
     # The racing line IS the driving path (operator directive 2026-07-10):
     # a hot lap never follows the centerline. use_racing_line=False remains
     # only as an explicit debug/centerline-baseline escape hatch. The
-    # corridor is narrowed by the vehicle's structural width (track width
-    # plus one tyre section), so different vehicles get different lines.
-    vehicle_width = float(p.track_width) + _TYRE_SECTION_WIDTH_M
+    # corridor is narrowed by the vehicle's structural width — sourced from
+    # the preset (Copa Truck: 2.465 m, CBA reg. Fig. 14) with a derived
+    # fallback (track width plus one tyre section) for width-less presets.
+    vehicle_width = float(getattr(p, "vehicle_width", 0.0)) \
+        or (float(p.track_width) + _TYRE_SECTION_WIDTH_M)
     driving_path = _driving_line(circuit, vehicle_width) \
         if getattr(config, "use_racing_line", True) else None
     x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit, driving_path)
