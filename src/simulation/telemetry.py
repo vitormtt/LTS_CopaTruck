@@ -8,7 +8,6 @@ Author: Lap Time Simulator Team
 Date: 2026-06-06
 """
 import numpy as np
-import pandas as pd
 from .lap_time_solver import SimulationResult
 from ..analysis.brake_lockup import geometry_from_params, lockup_margins
 from ..analysis.handling_balance import (

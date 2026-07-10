@@ -52,8 +52,6 @@ def simulacao_page() -> None:
             "Standing Start": "standing_start",
         }[sim_mode_label]
 
-        ambient_temp_c = 25.0
-
         col_play, col_reset = st.columns(2)
 
         with col_reset:

@@ -29,7 +29,7 @@ from scipy.optimize import differential_evolution
 
 from src.vehicle.fleet import get_vehicle_by_id
 from src.vehicle.setup import VehicleSetup, apply_setup
-from src.vehicle.units import bar_to_psi, psi_to_bar
+from src.vehicle.units import bar_to_psi
 from .helpers import cached_solver, fmt_laptime, init_session_state
 from src.visualization.theme import ACCENT
 

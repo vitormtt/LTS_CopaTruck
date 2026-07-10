@@ -45,7 +45,6 @@ def main():
     
     # Projeção ENU (East-North-Up) local
     lat0 = np.radians(lats[0])
-    lon0 = np.radians(lons[0])
     R = 6378137.0  # Raio equatorial WGS84
     
     # Cálculo das coordenadas Cartesianas locais

@@ -3,7 +3,6 @@
 OpenStreetMapDownloader: Baixa circuitos brasileiros via Overpass API/OSM ou cria aproximação.
 """
 import requests
-import numpy as np
 from typing import Optional, Dict
 
 class OpenStreetMapDownloader:

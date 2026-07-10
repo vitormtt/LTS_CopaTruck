@@ -10,3 +10,14 @@ from .optimization import optimization_page
 from .overlay import overlay_page
 from .race_report import race_report_page
 
+__all__ = [
+    "init_session_state",
+    "fmt_laptime",
+    "parametros_veiculo_page",
+    "pista_page",
+    "simulacao_page",
+    "resultados_page",
+    "optimization_page",
+    "overlay_page",
+    "race_report_page",
+]

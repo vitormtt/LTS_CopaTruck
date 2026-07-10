@@ -22,7 +22,6 @@ from src.vehicle.fleet import (
     list_vehicles,
     refresh_fleet,
 )
-from src.vehicle.units import bar_to_psi, psi_to_bar
 from .helpers import init_session_state
 from .torque_curve import render_torque_curve_editor
 

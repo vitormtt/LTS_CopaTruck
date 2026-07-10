@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Tuple
 import numpy as np
 
-from .parameters import VehicleParams, TireParams, AeroParams, BrakeParams
+from .parameters import VehicleParams
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,6 @@ import tempfile
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import plotly.io as pio
 from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
@@ -289,7 +288,6 @@ def resultados_page() -> None:
     csv_file = st.session_state.csv_path
     circuit = st.session_state.circuit
     vp = st.session_state.vehicle_params
-    mode = st.session_state.get("confirmed_mode", "Copa Truck")
 
     g = 9.81
     v_kmh = res['v_profile'] * 3.6

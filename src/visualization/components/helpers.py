@@ -8,7 +8,6 @@ import os
 import sys
 import json
 import hashlib
-import time
 from pathlib import Path
 from typing import Dict, Any, Tuple
 import numpy as np
@@ -21,7 +20,6 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from src.simulation.lap_time_solver import run_bicycle_model
-from src.tracks.generate_br_tracks import build_interlagos_real
 from src.tracks.hdf5 import CircuitHDF5Reader
 
 DATA_PATH = str(BASE_DIR / "tracks")

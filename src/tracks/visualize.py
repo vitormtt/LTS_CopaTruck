@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import numpy as np
 
+from src.tracks.hdf5 import CircuitHDF5Reader
+
 
 def validate_and_visualize(hdf5_file: str):
     """Valida e visualiza um arquivo HDF5 de circuito."""

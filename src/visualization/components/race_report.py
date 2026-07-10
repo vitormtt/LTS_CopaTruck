@@ -30,7 +30,7 @@ from src.analysis.race_report import (
 from src.visualization.components.helpers import fmt_laptime
 from src.visualization.components.overlay import _bundled_reference_laps
 from src.visualization.theme import (
-    ACCENT, LATERAL, NEGATIVE, NEUTRAL, POSITIVE, REFERENCE, SEQUENTIAL, style,
+    ACCENT, LATERAL, NEGATIVE, POSITIVE, REFERENCE, SEQUENTIAL, style,
 )
 
 

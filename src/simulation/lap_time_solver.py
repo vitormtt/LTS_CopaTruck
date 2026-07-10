@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import time as _time
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd

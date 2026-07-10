@@ -22,7 +22,7 @@ References:
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional
+from typing import Dict, List
 import json
 
 

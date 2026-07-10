@@ -3,10 +3,9 @@
 CircuitGenerator: Junta downloaders, calcula limites e salva o arquivo HDF5 pronto para uso na simulação.
 """
 import numpy as np
-from .hdf5 import CircuitData, CircuitHDF5Writer, CircuitHDF5Reader
+from .hdf5 import CircuitData, CircuitHDF5Writer
 from .tumftm import TUMFTMDownloader
 from .osm import OpenStreetMapDownloader
-import os
 from pathlib import Path
 
 def _calculate_boundaries(x, y, w_left, w_right):

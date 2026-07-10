@@ -26,7 +26,7 @@ from src.visualization.components import (
     overlay_page,
     race_report_page
 )
-from src.visualization.components.helpers import RESULTS_PATH, cached_solver, fmt_laptime
+from src.visualization.components.helpers import RESULTS_PATH, cached_solver
 
 # Routing dictionary
 PAGES = {

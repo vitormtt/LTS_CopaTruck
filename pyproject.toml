@@ -35,6 +35,16 @@ dev = [
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint.per-file-ignores]
+# Entry-point/bootstrap files insert the repo root into sys.path before
+# importing src.*, so their imports legitimately cannot sit at the top.
+"src/database/db_manager.py" = ["E402"]
+"src/database/migrate.py" = ["E402"]
+"src/database/seed_db.py" = ["E402"]
+"src/visualization/interface.py" = ["E402"]
+"src/visualization/components/helpers.py" = ["E402"]
+"src/visualization/components/vehicle_params.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
