@@ -82,6 +82,11 @@ class TireParams:
     wheel_radius: float               # Effective rolling radius [m]
     combined_grip_factor: float = 0.9 # Non-linear derating factor for combined slip limits [-]
 
+    # Selected tyre model for the DESIGN view: 'linear' | 'pacejka'.
+    # The lap solver still runs the linear friction-circle model; wiring
+    # Pacejka into the solver is a separate cross-validated change.
+    tire_model: str = "linear"
+
     # Pacejka Magic Formula coefficients (nonlinear models)
     pacejka_B: float = 10.0   # Stiffness factor [-]
     pacejka_C: float = 1.3    # Shape factor [-]
@@ -416,6 +421,7 @@ class VehicleParams:
             'mu': self.tire.friction_coefficient,
             'r_wheel': self.tire.wheel_radius,
             'combined_grip_factor': self.tire.combined_grip_factor,
+            'tire_model': self.tire.tire_model,
             # Pacejka coefficients (used by ThermalPacejkaTire)
             'pacejka_B': self.tire.pacejka_B,
             'pacejka_C': self.tire.pacejka_C,
@@ -509,6 +515,7 @@ class VehicleParams:
                 friction_coefficient=data.get('mu', 1.1),
                 wheel_radius=data.get('r_wheel', 0.65),
                 combined_grip_factor=data.get('combined_grip_factor', 0.9),
+                tire_model=data.get('tire_model', 'linear'),
                 pacejka_B=data.get('pacejka_B', 10.0),
                 pacejka_C=data.get('pacejka_C', 1.3),
                 pacejka_D=data.get('pacejka_D', 1.0),
