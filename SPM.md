@@ -1,9 +1,36 @@
 # SARU Project Memory — LapTimeSimulator_CopaTruck
 
-> Última atualização: 2026-07-08
+> Última atualização: 2026-07-10
 > LER ao iniciar. ATUALIZAR ao final de cada tarefa.
 
 ---
+
+## 0. Sessão 2026-07-10 — ruff cleanup + viz lockup/balance (V1+V2) FEITA
+
+- **RUFF CLEANUP COMPLETO** (pendência #6/§0-2026-07-08): 41 findings → **0** (`ruff check src/`
+  All checks passed). Commit `1c42cee`. Inclui **fix de bug latente**: `tracks/visualize.py` usava
+  `CircuitHDF5Reader` sem import (F821 → NameError se rodado). Removidos 19 imports mortos + 3 locals
+  mortos (`lon0`/`mode`/`ambient_temp_c`), `__all__` no barrel `components/`, E402 scoped via
+  `per-file-ignores` (entry points bootstrap sys.path — legítimo). Verificado: smoke-import de todos
+  os módulos tocados OK (`libxrk` falha = dep opcional pré-existente, não-relacionado).
+- **VIZ #10/balance FEITA (V1+V2, commit `8466213`, decisão Vitor "V1+V2 completo")** — resolve a
+  pendência #1 de viz (canais exportavam CSV, faltava plot). Arquitetura: helper **puro**
+  `src/analysis/driver_report.py` (`driver_report_from_result(res, params)` → lockup+balance channels
+  + KPIs, zero streamlit, 4 testes) reusado por DOIS consumidores:
+  - **Aba "Balance & lockup"** no `results.py` (5ª tab): 4 KPIs (peak front/rear margin, near-lockup %,
+    mean balance±tendency) + 2 plots (margem travamento F/R vs dist + linha ref 1.0; balanço assinado
+    understeer/oversteer). Cor semântica (theme tokens).
+  - **Seção "Handling & Brake Balance"** no PDF (`generate_pdf_report` ganhou param `params` opcional).
+  - **VERIFICADO LIVE no preview** (streamlit 8501, viewport 1440×900 — nota: viewport 0×0 colapsa a
+    sidebar do Streamlit, setar tamanho antes): sim default Cascavel 1:20.695, aba renderiza sem erro,
+    **rear = eixo limitante (margem 0.98 vs front 0.12), near-lock 38%, balance −0.001** (quase neutro).
+    PDF button presente sem exception. Screenshot deu timeout (15 plots pesam o renderer) — prova via DOM.
+- **Suíte: 188 passed, 2 skipped** (183 + 4 driver_report + 1). `develop` sincronizado com origin
+  (`1c42cee`→`8466213`).
+- **Pendências restantes** (todas bloqueadas em pesquisa Vitor, ele avisa quando voltar): calibração µ,
+  P1–P7 (`CALIBRATION_AUDIT §5`), recaptura Interlagos (TUM FTM), wiring `brake_hardware.py`. Prompts
+  priorizados entregues ao Vitor: track_reconstruction (keystone) > P4 µ > P1 governador > P6 torque >
+  P2 massa/CG > P5 transmissão > P7/brake_hardware. P3 aero quase resolvido (Cx 0.74), ARB pelo paper RSD.
 
 ## 0. Sessão 2026-07-08 — consolidação develop + lint gate restaurado
 
