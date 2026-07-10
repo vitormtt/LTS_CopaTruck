@@ -25,12 +25,14 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from .helpers import fmt_laptime, init_session_state
+from src.analysis.driver_report import driver_report_from_result
 from src.visualization.theme import (
     ACCENT, HIGHLIGHT, LATERAL, NEGATIVE, NEUTRAL, POSITIVE, REFERENCE, SEQUENTIAL,
 )
 
 
-def generate_pdf_report(res: dict, circuit: Any, meta: dict, vehicle_name: str, filepath: str) -> None:
+def generate_pdf_report(res: dict, circuit: Any, meta: dict, vehicle_name: str, filepath: str,
+                        params: dict | None = None) -> None:
     """Generate a clean PDF engineering report using ReportLab."""
     doc = SimpleDocTemplate(filepath, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     story = []
@@ -185,6 +187,36 @@ def generate_pdf_report(res: dict, circuit: Any, meta: dict, vehicle_name: str, 
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(t_sec)
+
+    # 7. Handling & Brake Balance (optional — needs vehicle params)
+    if params is not None:
+        try:
+            dr = driver_report_from_result(res, params)
+        except (KeyError, ValueError):
+            dr = None
+        if dr is not None:
+            lk, bk = dr.lockup_kpis, dr.balance_kpis
+            tendency = "Understeer" if bk['mean_balance'] > 0 else "Oversteer"
+            story.append(Spacer(1, 15))
+            story.append(Paragraph("Handling & Brake Balance", section_style))
+            bal_rows = [
+                [Paragraph("Metric", header_style), Paragraph("Value", header_style),
+                 Paragraph("Metric", header_style), Paragraph("Value", header_style)],
+                [Paragraph("Peak Front Lockup Margin", body_style), Paragraph(f"{lk['peak_front_margin']:.2f}", body_style),
+                 Paragraph("Peak Rear Lockup Margin", body_style), Paragraph(f"{lk['peak_rear_margin']:.2f}", body_style)],
+                [Paragraph("Near-Lockup Time", body_style), Paragraph(f"{lk['near_lockup_fraction'] * 100:.0f} %", body_style),
+                 Paragraph("Understeer Time", body_style), Paragraph(f"{bk['understeer_fraction'] * 100:.0f} %", body_style)],
+                [Paragraph("Mean Balance", body_style), Paragraph(f"{bk['mean_balance']:+.3f} ({tendency})", body_style),
+                 Paragraph("Peak Front / Rear Util", body_style), Paragraph(f"{bk['peak_front_utilisation']:.2f} / {bk['peak_rear_utilisation']:.2f}", body_style)],
+            ]
+            t_bal = Table(bal_rows, colWidths=[160, 110, 160, 110])
+            t_bal.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2B6CB0')),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ]))
+            story.append(t_bal)
 
     # Build document
     doc.build(story)
@@ -357,7 +389,8 @@ def resultados_page() -> None:
             pdf_path = tmp_pdf.name
             
         try:
-            generate_pdf_report(res, circuit, st.session_state.circuit_meta, vp.name, pdf_path)
+            generate_pdf_report(res, circuit, st.session_state.circuit_meta, vp.name, pdf_path,
+                                params=vp.to_solver_dict())
             with open(pdf_path, "rb") as f:
                 st.download_button(
                     label="PDF engineering report",
@@ -378,8 +411,9 @@ def resultados_page() -> None:
     st.markdown("---")
     
     # --- Interactive plots (grouped into tabs) ---
-    tab_dyn, tab_bf, tab_cd, tab_sec = st.tabs(
-        ["Track & dynamics", "Brake & fuel", "Chassis & driver", "Sectors"])
+    tab_dyn, tab_bf, tab_cd, tab_bal, tab_sec = st.tabs(
+        ["Track & dynamics", "Brake & fuel", "Chassis & driver",
+         "Balance & lockup", "Sectors"])
 
     with tab_dyn:
         st.subheader("Speed map")
@@ -590,6 +624,62 @@ def resultados_page() -> None:
                 yaxis_title='deg', xaxis_title='Distance (m)',
                 margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_steer, width="stretch")
+
+    with tab_bal:
+        st.markdown("---")
+        st.subheader("Brake lockup & handling balance")
+        st.caption(
+            "Derived no-ABS lockup risk and under/oversteer balance. "
+            "Diagnostic only — does not change lap time.")
+        try:
+            dr = driver_report_from_result(res, vp.to_solver_dict())
+        except (KeyError, ValueError) as exc:
+            st.info(f"Driver channels unavailable for this run: {exc}")
+        else:
+            lu, hb = dr.lockup, dr.balance
+            lk, bk = dr.lockup_kpis, dr.balance_kpis
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Peak front margin", f"{lk['peak_front_margin']:.2f}")
+            m2.metric("Peak rear margin", f"{lk['peak_rear_margin']:.2f}")
+            m3.metric("Near-lockup time", f"{lk['near_lockup_fraction'] * 100:.0f}%")
+            mean_bal = bk['mean_balance']
+            tendency = "understeer" if mean_bal > 0 else "oversteer"
+            m4.metric("Mean balance", f"{mean_bal:+.3f}", tendency, delta_color="off")
+
+            col_lock, col_bal = st.columns(2)
+            with col_lock:
+                fig_lock = go.Figure()
+                fig_lock.add_trace(go.Scatter(
+                    x=dist, y=lu.front_margin, mode='lines',
+                    name='Front', line=dict(color=ACCENT, width=2)))
+                fig_lock.add_trace(go.Scatter(
+                    x=dist, y=lu.rear_margin, mode='lines',
+                    name='Rear', line=dict(color=LATERAL, width=2)))
+                fig_lock.add_hline(y=1.0, line=dict(color=NEGATIVE, width=1, dash='dash'),
+                                   annotation_text='lock')
+                fig_lock.update_layout(
+                    title='Brake lockup margin (1.0 = lock)', height=300,
+                    yaxis_title='margin', xaxis_title='Distance (m)',
+                    margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_lock, width="stretch")
+            with col_bal:
+                fig_bal = go.Figure()
+                fig_bal.add_trace(go.Scatter(
+                    x=dist, y=hb.balance, mode='lines',
+                    name='Balance', line=dict(color=HIGHLIGHT, width=2)))
+                fig_bal.add_hline(y=0.0, line=dict(color=NEUTRAL, width=1))
+                fig_bal.add_annotation(xref='paper', yref='paper', x=0.02, y=0.98,
+                                       text='understeer', showarrow=False,
+                                       font=dict(color=REFERENCE, size=11))
+                fig_bal.add_annotation(xref='paper', yref='paper', x=0.02, y=0.02,
+                                       text='oversteer', showarrow=False,
+                                       font=dict(color=REFERENCE, size=11))
+                fig_bal.update_layout(
+                    title='Handling balance (>0 understeer)', height=300,
+                    yaxis_title='util_f − util_r', xaxis_title='Distance (m)',
+                    margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_bal, width="stretch")
 
     with tab_sec:
         # Sector Timing Tab
