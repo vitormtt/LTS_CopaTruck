@@ -11,7 +11,7 @@ import streamlit as st
 from src.tracks.hdf5 import CircuitData
 from src.tracks.racing_line import compute_racing_line
 from .helpers import DATA_PATH, load_hdf5, init_session_state
-from src.visualization.theme import ACCENT, EDGE_WHITE, NEUTRAL
+from src.visualization.theme import ACCENT, EDGE_WHITE
 
 
 def _racing_line_plot_xy(circuit, plot_data) -> tuple:
@@ -54,7 +54,13 @@ def pista_page() -> None:
 
     # Default to Cascavel — the trusted calibration anchor.
     default_idx = pistas.index("cascavel.hdf5") if "cascavel.hdf5" in pistas else 0
-    sel = st.selectbox("Circuit (HDF5)", pistas, index=default_idx)
+
+    def _track_label(filename: str) -> str:
+        stem = os.path.splitext(os.path.basename(filename))[0]
+        return stem.replace("_", " ").replace("-", " ").title()
+
+    sel = st.selectbox("Circuit", pistas, index=default_idx,
+                       format_func=_track_label)
     sel_path = os.path.join(DATA_PATH, sel)
     circuit, meta, plot_data = load_hdf5(sel_path, os.path.getmtime(sel_path))
 
@@ -123,7 +129,7 @@ def pista_page() -> None:
     fig.add_trace(go.Scatter(
         x=plot_data["x_c"], y=plot_data["y_c"],
         mode="lines", name="Centerline",
-        line=dict(color=NEUTRAL, width=1.2, dash="dash"),
+        line=dict(color=ACCENT, width=1.2, dash="dash"),
     ))
     if st.session_state.get("use_racing_line", False):
         rlx, rly = _racing_line_plot_xy(circuit_c, plot_data)
@@ -131,8 +137,9 @@ def pista_page() -> None:
             x=rlx, y=rly, mode="lines", name="Racing line",
             line=dict(color=ACCENT, width=2.0),
         ))
-    fig.update_layout(title=meta["name"], xaxis_title="x (m)",
-                      yaxis_title="y (m)", height=450,
+    fig.update_layout(title=meta["name"],
+                      xaxis_title="x — local track frame (m)",
+                      yaxis_title="y — local track frame (m)", height=450,
                       margin=dict(l=0, r=0, t=35, b=0))
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
     st.plotly_chart(fig, width="stretch")
