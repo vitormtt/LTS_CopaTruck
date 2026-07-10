@@ -5,6 +5,35 @@
 
 ---
 
+## 0. Sessão 2026-07-10 (parte 3) — FUSÃO DE PRESETS + qualy flying + results rework
+
+- **FUSÃO DE PRESETS (`40cf6f5`, DECISÃO VITOR "confirmo fusão")**: preset único
+  **`volkswagen_31320` = "VW 31320 (Copa Truck)"** com a física researched (ZF6 6M 3.42,
+  r_wheel 0.52, Cx 0.74, driveline 0.88, abs OFF, brake_hw 314/263). `vw_31320_zf6_reference`
+  **DELETADO** (motivo: nunca mais rodar modelo stale por engano). Testes que referenciavam o
+  experimental re-apontados.
+- **QUALY = FLYING LAP por default (`40cf6f5`, fix do "sai a 40 km/h" — 2ª reclamação)**:
+  `use_flying_lap_start` default True (dataclass + dict path solver:1584). Qualy agora larga
+  a **v0≈180 km/h** (BC periódica). Standing start intacto (80.46s).
+  **Δ Cascavel qualy: 80.69 → 75.57s** — overshoot -3.9s vs pole real 79.505 = **µ=1.6 fudge
+  EXPOSTO** (era co-calibrado com launch frio). Recalibração µ = épico pipeline (próximo).
+  Baselines regeneradas + assert range 74–78 com rationale (âncora real vive aqui no SPM como
+  alvo de CALIBRAÇÃO, não de regressão). Interlagos qualy 132.7 (centerline ruidoso conhecido).
+- **RESULTS REWORK (`81daa49`, batch 6 itens Vitor)**: (1) qualy 40 km/h ✅ acima. (2) **roll
+  derivado** quasi-static φ=m·ay·h_cg/k_roll (KPI 18.8° no lap — magnitude indicativa, k_roll
+  230k SEM FONTE, caption avisa; era sempre 0 pois solver nunca exportou o canal). (3) history
+  movido pro fim. (4) resposta rear-lock: transferência de carga alivia traseira + bias 60% <
+  neutro (~65-70% ótimo) → rear satura primeiro; físico, não bug. (5) axis titles com unidade
+  em TODOS os plots. (6) **setores: slider removido** → 3 setores fixos + breakdown expansível
+  curva/reta por setor (detecção |a_lat|>0.3g, blips <30m fundidos; Cascavel detecta 8 curvas ✓)
+  com tempos/share/v/peak-G.
+- **Verificado live**: preset único, lap 1:15.571 (bate headless), roll não-zero, slider fora,
+  3 breakdowns + history no fim, zero exceptions. **205 passed.** Fix no caminho: `mass_geometry.
+  cg_height` (não h_cg) — AttributeError pego no preview.
+- **⚠️ ESTADO DE CALIBRAÇÃO**: física estruturalmente honesta (flying, ZF6, freio hardware,
+  no-ABS) mas **µ=1.6 segue fudge** → sim -4.9% vs real. Gate alvo pós-pipeline: 0.5-2% mais
+  rápido que piloto real (doc Validação). NÃO retunar µ na mão — esperar pipeline track.
+
 ## 0. Sessão 2026-07-10 (parte 2) — research freio APLICADA + design views UI
 
 - **RESEARCH CHEGOU (2 docs no `docs/`)**: `Especificações Freio Copa Truck.md` (responde
