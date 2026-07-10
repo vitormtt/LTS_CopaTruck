@@ -22,8 +22,10 @@ References:
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
+
+from .brake_hardware import BrakeHardware, brake_force_from_hardware
 
 
 @dataclass
@@ -266,6 +268,16 @@ class BrakeParams:
     fade_full_temp_c: float = 800.0
     fade_min_factor: float = 0.5
 
+    # Optional per-axle brake hardware (Limpert chain). When BOTH axles are
+    # present, max_brake_force is DERIVED from the hardware instead of the
+    # hand-tuned number above. Keys per axle: n_pistons, piston_diameter_m,
+    # line_pressure_bar, pad_friction, disc_effective_radius_m (the wheel
+    # radius comes from TireParams.wheel_radius). Source: docs/Especificações
+    # Freio Copa Truck.md §9 (Knorr SN7 + Fras-le PD/116, pneumatic-equivalent
+    # line pressures).
+    hardware_front: Optional[Dict[str, float]] = None
+    hardware_rear: Optional[Dict[str, float]] = None
+
 
 @dataclass
 class VehicleParams:
@@ -359,6 +371,20 @@ class VehicleParams:
             data = json.load(f)
         return cls.from_dict(data)
 
+    def derived_brake_force(self) -> Optional[float]:
+        """Total brake force [N] from per-axle hardware, if configured.
+
+        Returns:
+            Force from the Limpert chain when both axle hardware blocks are
+            present, else None (caller falls back to brake.max_brake_force).
+        """
+        if not (self.brake.hardware_front and self.brake.hardware_rear):
+            return None
+        r_wheel = self.tire.wheel_radius
+        front = BrakeHardware(wheel_radius_m=r_wheel, **self.brake.hardware_front)
+        rear = BrakeHardware(wheel_radius_m=r_wheel, **self.brake.hardware_rear)
+        return brake_force_from_hardware(front, rear)
+
     def to_solver_dict(self) -> Dict:
         """
         Flat dictionary compatible with run_bicycle_model() interface.
@@ -421,7 +447,9 @@ class VehicleParams:
             # --- Brakes ---
             'max_decel': self.brake.max_deceleration,
             'brake_balance': self.brake.brake_balance,
-            'max_brake_force': self.brake.max_brake_force,
+            'max_brake_force': self.derived_brake_force() or self.brake.max_brake_force,
+            'brake_hw_front': self.brake.hardware_front,
+            'brake_hw_rear': self.brake.hardware_rear,
             'abs_slip_target': self.brake.abs_slip_target,
             'abs_enabled': self.brake.abs_enabled,
             'brake_response_time': self.brake.brake_response_time,
@@ -532,6 +560,8 @@ class VehicleParams:
                 fade_onset_temp_c=data.get('fade_onset_temp_c', 450.0),
                 fade_full_temp_c=data.get('fade_full_temp_c', 800.0),
                 fade_min_factor=data.get('fade_min_factor', 0.5),
+                hardware_front=data.get('brake_hw_front'),
+                hardware_rear=data.get('brake_hw_rear'),
             ),
             k_roll=data.get('k_roll', 230_000.0),
             k_roll_front=data.get('k_roll_front', 115_000.0),
@@ -653,5 +683,20 @@ def validate_vehicle_params(params: VehicleParams) -> List[str]:
 
     if not 0.0 <= params.brake.brake_balance <= 100.0:
         errors.append("brake_balance must be between 0 and 100%")
+
+    hw_required = {"n_pistons", "piston_diameter_m", "line_pressure_bar",
+                   "pad_friction", "disc_effective_radius_m"}
+    for label, block in (("front", params.brake.hardware_front),
+                         ("rear", params.brake.hardware_rear)):
+        if block is None:
+            continue
+        missing = hw_required - set(block)
+        if missing:
+            errors.append(
+                f"brake hardware ({label}) missing keys: {sorted(missing)}")
+        elif any(block[k] <= 0 for k in hw_required):
+            errors.append(f"brake hardware ({label}) values must be positive")
+    if (params.brake.hardware_front is None) != (params.brake.hardware_rear is None):
+        errors.append("brake hardware requires BOTH front and rear axle blocks")
 
     return errors

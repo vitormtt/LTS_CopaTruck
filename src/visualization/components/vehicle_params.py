@@ -366,6 +366,20 @@ def parametros_veiculo_page() -> None:
                 "Max deceleration limit (m/s²)", 3.0, 12.0,
                 float(vp.brake.max_deceleration), step=0.1, key="vp_max_decel"
             )
+            derived_force = vp.derived_brake_force()
+            if derived_force is not None:
+                st.metric("Brake force derived from hardware",
+                          f"{derived_force / 1000.0:.1f} kN")
+                hw_f, hw_r = vp.brake.hardware_front, vp.brake.hardware_rear
+                st.caption(
+                    f"Limpert chain — {hw_f['n_pistons']}×"
+                    f"{hw_f['piston_diameter_m'] * 1000:.0f} mm pistons, "
+                    f"{hw_f['line_pressure_bar']:.0f}/"
+                    f"{hw_r['line_pressure_bar']:.0f} bar F/R equivalent, "
+                    f"pad µ {hw_f['pad_friction']:.2f}, "
+                    f"disc R {hw_f['disc_effective_radius_m'] * 1000:.1f} mm. "
+                    "Manual force input below is IGNORED while hardware is set "
+                    "(grip still caps the lap).")
             vp.brake.max_brake_force = st.number_input(
                 "Max Total Brake Force (N)", 20000.0, 120000.0,
                 float(vp.brake.max_brake_force), step=1000.0, key="vp_brake_force"

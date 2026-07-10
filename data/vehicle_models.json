@@ -150,6 +150,20 @@
     "max_decel": 9.2,
     "brake_balance": 60.0,
     "max_brake_force": 60000.0,
+    "brake_hw_front": {
+      "n_pistons": 2,
+      "piston_diameter_m": 0.068,
+      "line_pressure_bar": 314.0,
+      "pad_friction": 0.48,
+      "disc_effective_radius_m": 0.1725
+    },
+    "brake_hw_rear": {
+      "n_pistons": 2,
+      "piston_diameter_m": 0.068,
+      "line_pressure_bar": 263.0,
+      "pad_friction": 0.48,
+      "disc_effective_radius_m": 0.1725
+    },
     "abs_slip_target": 0.15,
     "abs_enabled": false,
     "brake_response_time": 0.1,

@@ -10,10 +10,12 @@ ceiling.
 
 Chain per axle (Limpert 1999, Brake Design and Safety, ch. 2 & 7):
 
-    clamp_force   = P_line * A_piston * n_pistons
+    clamp_force   = P_line * A_piston * n_pistons          (one caliper)
     brake_torque  = 2 * mu_pad * clamp_force * R_disc_eff   (two pad faces)
-    force_at_tyre = brake_torque / R_wheel
+    force_at_tyre = brake_torque / R_wheel * wheels_per_axle
 
+Piston/pressure inputs describe ONE caliper; an axle carries one caliper
+per wheel, so the axle force scales by ``wheels_per_axle`` (2 on a truck).
 Total vehicle brake force = front axle + rear axle.
 
 All values SI unless the field name says otherwise (pressure in bar at the
@@ -33,12 +35,13 @@ class BrakeHardware:
     """Physical brake hardware of a single axle.
 
     Attributes:
-        n_pistons: Number of caliper pistons on one side of the axle.
+        n_pistons: Number of pistons in one caliper.
         piston_diameter_m: Caliper piston diameter [m].
         line_pressure_bar: Peak hydraulic line pressure [bar].
         pad_friction: Pad-disc friction coefficient [-].
         disc_effective_radius_m: Mean radius where pads act on the disc [m].
         wheel_radius_m: Rolling wheel radius [m].
+        wheels_per_axle: Braked wheels (one caliper each) on the axle.
     """
     n_pistons: int
     piston_diameter_m: float
@@ -46,6 +49,7 @@ class BrakeHardware:
     pad_friction: float
     disc_effective_radius_m: float
     wheel_radius_m: float
+    wheels_per_axle: int = 2
 
 
 def axle_brake_force(hw: BrakeHardware) -> float:
@@ -66,7 +70,7 @@ def axle_brake_force(hw: BrakeHardware) -> float:
     piston_area = math.pi * (hw.piston_diameter_m / 2.0) ** 2
     clamp = hw.line_pressure_bar * _BAR_TO_PA * piston_area * hw.n_pistons
     torque = _PAD_FACES * hw.pad_friction * clamp * hw.disc_effective_radius_m
-    return torque / hw.wheel_radius_m
+    return torque / hw.wheel_radius_m * hw.wheels_per_axle
 
 
 def brake_force_from_hardware(
