@@ -18,7 +18,8 @@ dependencies = [
   "matplotlib>=3.7.0",
   "plotly>=5.0.0",
   "streamlit>=1.28.0",
-  "reportlab>=4.1.0"
+  "reportlab>=4.1.0",
+  "libxrk>=0.12.0",
 ]
 
 [project.scripts]
