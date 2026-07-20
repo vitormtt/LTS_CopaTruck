@@ -41,6 +41,7 @@ Em caso de conflito, o contexto **mais específico** vence.
 | `architect` | `.claude/agents/architect.md` | novas features, design de módulos |
 | `tdd-enforcer` | `.claude/agents/tdd-enforcer.md` | qualquer feature nova |
 | `low-cost-runner` | `.claude/agents/low-cost-runner.md` | leitura/busca/catalogação (Haiku) |
+| `evaluator` | `.claude/agents/evaluator.md` | veredito independente vs spec antes do merge (Opus; "A" do padrão PGE) |
 
 ## NotebookLM (pendente inicialização)
 

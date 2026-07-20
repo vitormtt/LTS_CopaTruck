@@ -9,6 +9,8 @@ BLOCKLIST=(
   "docker rm -f"
   "docker system prune"
   "dd if=/dev/"
+  "chmod 777"
+  "chmod -R 777"
 )
 for PATTERN in "${BLOCKLIST[@]}"; do
   if echo "$COMMAND" | grep -qF "$PATTERN"; then
@@ -16,3 +18,8 @@ for PATTERN in "${BLOCKLIST[@]}"; do
     exit 1
   fi
 done
+# padrões com variação (regex): download canalizado para shell
+if echo "$COMMAND" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba|z)?sh'; then
+  echo "BLOCKED: download canalizado para shell (curl|sh) — baixe, inspecione, depois execute" >&2
+  exit 1
+fi
