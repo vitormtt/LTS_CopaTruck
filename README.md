@@ -1,8 +1,24 @@
 # LapTimeSimulator — Copa Truck
 
-Quasi-steady-state (QSS) lap time simulator for motorsport vehicles. Developed by SARU Dynamics.
+**O que é isto?** Um simulador de tempo de volta para os caminhões da Copa Truck, feito pela
+SARU Dynamics. Você escolhe o caminhão, o circuito e o acerto (barras, asa, pressão de pneu,
+freio) e ele calcula a volta — com física de verdade: transferência de carga, aerodinâmica,
+temperatura de pneu, consumo de diesel. Tudo numa interface web local (Streamlit).
 
-Supports the Copa Truck fleet (diesel race trucks), with setup sweeps, batch simulation, setup optimization and real telemetry comparison.
+**Quer ver funcionando?** (requer Docker + Make)
+
+```bash
+git clone git@github.com:vitormtt/LTS_CopaTruck.git && cd LTS_CopaTruck
+cp .env.example .env    # config local (senhas de dev — edite se quiser)
+make up && make seed    # sobe banco + app e carrega a frota
+# abra http://localhost:8501
+```
+
+`make help` lista todos os comandos. Sem Docker: seção *Running* abaixo (venv + streamlit).
+
+---
+
+*Daqui para baixo: documentação técnica para desenvolvedores.*
 
 ---
 
@@ -179,6 +195,14 @@ result.save_csv("out.csv")
 | `data/vehicle_models.json` | Vehicle preset definitions (validated on load) |
 
 ---
+
+## Recommended analysis tools (open source)
+
+| Tool | Use | How |
+|---|---|---|
+| [marimo](https://marimo.io) | reactive notebook for exploring exported laps/sweeps | `uvx marimo edit` |
+| [Plotly](https://plotly.com/python/) | interactive traces beyond the built-in Streamlit charts | `uv add plotly` |
+| [DuckDB](https://duckdb.org) | ad-hoc SQL over exported CSV/Parquet telemetry | `uvx duckdb` |
 
 ## References
 
