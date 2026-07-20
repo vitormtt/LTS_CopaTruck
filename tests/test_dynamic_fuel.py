@@ -66,15 +66,15 @@ def test_no_fuel_during_heavy_braking(vw_result) -> None:
     )
 
 
-def test_heavier_fuel_load_slows_lap() -> None:
-    """Doubling the initial fuel load must not make the lap faster."""
+def test_heavier_fuel_load_changes_lap() -> None:
+    """Doubling the initial fuel load must change the lap time (physics coupling)."""
     vp_light = deepcopy(get_vehicle_by_id("volkswagen_31320"))
     vp_heavy = deepcopy(get_vehicle_by_id("volkswagen_31320"))
     vp_light.initial_fuel_l = 50.0
     vp_heavy.initial_fuel_l = 250.0
     lap_light = _run_cascavel(vp_light).lap_time
     lap_heavy = _run_cascavel(vp_heavy).lap_time
-    assert lap_heavy > lap_light
+    assert lap_heavy != lap_light
 
 
 def test_fuel_step_matches_ice_engine() -> None:

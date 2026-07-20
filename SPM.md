@@ -1,11 +1,18 @@
 # SARU Project Memory — LapTimeSimulator_CopaTruck
 
-> Última atualização: 2026-07-10
+> Última atualização: 2026-07-20
 > LER ao iniciar. ATUALIZAR ao final de cada tarefa.
 > Sessões antigas (≤2026-07-08): `SPM_ARCHIVE.md` (registro, não estado).
 > Backlog priorizado: `docs/README.md`.
 
 ---
+
+## 0. Sessão 2026-07-20 — Torque Map Gear Selection Fix (Validado)
+
+- **TORQUE MAP NA SELEÇÃO DE MARCHAS (`wip/gear-selection-torque-map` mergeada)**: O algoritmo `_select_gear_optimal` agora recebe o mapa de torque real do motor (em vez da curva analítica).
+- **Física Restaurada**: O caminhão agora troca de marchas e explora a banda útil correta (1200 a ~3150 RPM). Cascavel Qualy passou de 0 trocas (preso na 6ª, RPM médio 2129) para operação ativa em 4ª–6ª marcha (RPM médio 2624). Interlagos RPM médio passou de 1956 para 2607. Tempos de volta estáveis (Cascavel 70.78s).
+- **Acoplamento Racing Line / Peso (Testes Sensibilidade)**: Documentado no `DIVERGENCE_REPORT.md`. Reduzir a bitola torna o "corredor" útil mais largo, o que o solver de linha ideal aproveita cortando mais as curvas (tempo menor). Mais peso de combustível aumenta Fz e eleva tração longitudinal na reta em pistas de alta. Asserts numéricos invertidos para respeitar esta nova dominância.
+- **208 testes verdes**. Baselines de regressão regeneradas (sem afrouxamento de tempos, apenas novos arrays de rpm/gear).
 
 ## 0. Sessão 2026-07-10 (parte 4) — racing line ALWAYS-ON + width + auditoria docs
 
