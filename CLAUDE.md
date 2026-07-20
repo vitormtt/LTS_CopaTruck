@@ -2,7 +2,7 @@
 
 <!-- SARU-DOC-SYNC:START (gerado por saru-doc-sync.sh — NAO duplicar regras globais aqui) -->
 > **Regras globais (operador):** `~/.claude/CLAUDE.md` — fonte unica (versao vigente no proprio arquivo). NAO duplicar aqui.
-> **Memoria global SARU:** `/home/vitor/Projects/01_Workspace/SARU_GLOBAL_MEMORY.md`
+> **Memoria global SARU:** `/home/vitor/Projects/SARU/SGM.md`
 > **Memoria deste repo:** `SPM.md`
 > **Git Flow:** `main` (release) + `develop` (integracao) + `feature/*`. Merge `--no-ff`. Sem PR.
 <!-- SARU-DOC-SYNC:END -->
