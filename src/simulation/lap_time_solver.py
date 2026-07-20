@@ -425,8 +425,20 @@ def _torque_curve_interp(
     return float(np.interp(rpm_c, torque_curve_rpm, torque_curve_nm))
 
 
-def _select_gear_optimal(v: float, p: _LegacyVehicleParams) -> int:
-    """Select gear that maximises drive force within RPM range."""
+def _select_gear_optimal(
+    v: float,
+    p: _LegacyVehicleParams,
+    torque_map_rpm: Optional[list] = None,
+    torque_map_nm: Optional[list] = None,
+) -> int:
+    """Select gear that maximises drive force within RPM range.
+
+    Uses the SAME torque source as the force solver (_engine_torque: real
+    engine map when present, analytic fallback otherwise). The old version
+    always used the analytic road-truck curve, whose exponential decay
+    kills torque above ~2000 rpm — the selector then parked the truck in
+    top gear for the whole lap (no shifts, rpm trace pinned low).
+    """
     rpm_min_opt = p.rpm_idle * 1.5
     rpm_max_opt = p.rpm_max * 0.90
     best_gear, best_force = 1, -1.0
@@ -437,7 +449,7 @@ def _select_gear_optimal(v: float, p: _LegacyVehicleParams) -> int:
         if rpm > p.rpm_max:
             continue
         rpm = max(rpm, p.rpm_idle)
-        T = _torque_curve(rpm, p)
+        T = _engine_torque(rpm, p, torque_map_rpm or [], torque_map_nm or [])
         F = T * ratio_total / p.r_wheel
         if F > fallback_force:
             fallback_force = F
@@ -928,6 +940,8 @@ def _finalize_pass(
     p: _LegacyVehicleParams,
     ds: np.ndarray,
     radius: np.ndarray,
+    torque_map_rpm: Optional[list] = None,
+    torque_map_nm: Optional[list] = None,
 ) -> dict:
     """
     Shared time-integration pass over the FINAL speed profile.
@@ -957,7 +971,8 @@ def _finalize_pass(
     for i in range(n):
         v_i = v_profile[i]
         a_lat[i] = v_i ** 2 / max(radius[i], 1.0)
-        gear_profile[i] = _select_gear_optimal(max(v_i, 0.5), p)
+        gear_profile[i] = _select_gear_optimal(max(v_i, 0.5), p,
+                                               torque_map_rpm, torque_map_nm)
         rpm_profile[i] = _get_rpm(v_i, gear_profile[i], p)
 
         m_cur = p.m + max(
@@ -1055,7 +1070,7 @@ def _run_ggv_solver(
     m_fuel_initial = p.initial_fuel_l * p.fuel_density
 
     v_profile[0] = v0
-    gear_cur = _select_gear_optimal(max(v0, 0.5), p)
+    gear_cur = _select_gear_optimal(max(v0, 0.5), p, torque_map_rpm, torque_map_nm)
     shift_dist_remaining = 0.0
     v_last_upshift = 0.0
     a_long_prev = 0.0
@@ -1065,7 +1080,8 @@ def _run_ggv_solver(
         if shift_dist_remaining > 0.0:
             gear = gear_cur  # hold gear through the traction cut
         else:
-            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p)
+            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p,
+                                            torque_map_rpm, torque_map_nm)
             if gear_opt > gear_cur:
                 # Upshift interrupts traction for shift_time
                 shift_dist_remaining = v_prev * p.shift_time
@@ -1179,7 +1195,8 @@ def _run_ggv_solver(
         v_profile, fuel_acum, p, mu, ds, radius,
         temp_LF=temp_LF, temp_RF=temp_RF, temp_LR=temp_LR, temp_RR=temp_RR
     )
-    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius)
+    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius,
+                              torque_map_rpm, torque_map_nm)
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
@@ -1239,7 +1256,8 @@ def _run_standing_start(
         if shift_dist_remaining > 0.0 and not in_launch:
             gear = gear_cur  # hold gear through the traction cut
         else:
-            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p)
+            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p,
+                                            torque_map_rpm, torque_map_nm)
             if gear_opt > gear_cur:
                 if not in_launch:
                     shift_dist_remaining = v_prev * p.shift_time
@@ -1354,7 +1372,8 @@ def _run_standing_start(
         v_profile, fuel_acum, p, mu, ds, radius,
         temp_LF=temp_LF, temp_RF=temp_RF, temp_LR=temp_LR, temp_RR=temp_RR
     )
-    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius)
+    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius,
+                              torque_map_rpm, torque_map_nm)
     # Preserve the launch RPM at the start line for telemetry realism
     channels["rpm_profile"][0] = launch_rpm
 
