@@ -15,6 +15,7 @@ make up && make seed    # sobe banco + app e carrega a frota
 ```
 
 `make help` lista todos os comandos. Sem Docker: seção *Running* abaixo (venv + streamlit).
+Ver o que roda no Docker: `lazydocker` · guia `saru-docs/docs/runbooks/docker-observability.md`.
 
 ---
 
