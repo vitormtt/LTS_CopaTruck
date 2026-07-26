@@ -85,102 +85,19 @@ de chassi/aero de carro e testes afrouxados. Opções:
 
 Em ambas: reverter o assert 70–82 s para 76–82 s (teste nunca deveria ter sido afrouxado).
 
-## 5. Prompts de pesquisa — Vitor executa no Perplexity/Gemini
+## 5. Prompts de pesquisa — movidos para o documento único (2026-07-26)
 
-> Regra: agente prepara, Vitor roda. Exigir **≥2 fontes independentes por afirmação**;
-> colar resultados em `docs/research/` e só então promover valores aos presets.
-> ETRC (European Truck Racing Championship) é o análogo técnico mais bem documentado —
-> usar como proxy quando não houver dado Copa Truck, marcando a origem.
-
-### P1 — Limitador de velocidade (bloqueia Vmax; maior impacto no lap time)
-
-```text
-Copa Truck (Brasil, 2024-2026): existe limite eletrônico de velocidade máxima imposto
-pelo regulamento técnico ou esportivo (CBA)? Qual o valor exato em km/h e como é
-imposto (limitador de rotação, pop-off, radar com punição esportiva)?
-Contexto: a Fórmula Truck historicamente limitava em 160 km/h; encontrei menções
-contraditórias de 160, 190 e 200 km/h para a Copa Truck atual, e projeções de
-velocidade livre >230 km/h. Preciso do valor vigente em 2025-2026.
-Responda com: valor + mecanismo + artigo do regulamento + 2 fontes independentes
-(regulamento CBA, notícia técnica, entrevista de equipe, onboard com telemetria).
-```
-
-### P2 — Massa, CG e inércia do caminhão de corrida
-
-```text
-Caminhão de corrida estilo Copa Truck / ETRC (cabine semi-truck, ~4.5-5.0 t, motor
-diesel 13L dianteiro): preciso de 3 grandezas físicas com fonte:
-(1) Altura do centro de gravidade (h_cg) típica em metros — chassi rebaixado de
-    competição, não caminhão de rua;
-(2) Momento de inércia de guinada (Iz, kg·m²) — medido ou estimado por distribuição
-    de massa (aceito paper SAE/dissertação com metodologia);
-(3) Distribuição de peso dianteira/traseira típica em ordem de corrida.
-Contexto Copa Truck: peso mínimo 4950 kg com piloto (CBA 2026), entre-eixos
-3.30-3.80 m. Se não houver dado Copa Truck, use ETRC (MAN/Iveco/Buggyra) e papers
-de truck racing. 2 fontes por grandeza; se estimativa, mostre o cálculo.
-```
-
-### P3 — Aerodinâmica (Cx, área frontal, lift/downforce)
-
-```text
-Aerodinâmica de caminhão de corrida (Copa Truck brasileiro e ETRC europeu, 2020-2026):
-(1) Coeficiente de arrasto (Cd/Cx) típico do caminhão de competição com kit aero
-    (defletores, splitter, teto rebaixado) — não caminhão de rua;
-(2) Área frontal efetiva em m² (largura máx 2.45-2.55 m, altura de cabine de corrida);
-(3) O caminhão gera downforce ou lift? Coeficiente de sustentação (Cl) estimado com
-    splitter dianteiro e defletor de teto.
-Aceito: papers CFD de truck racing, dados Buggyra/MAN/Iveco ETRC, dissertações.
-2 fontes por item; se faixa, dê a faixa e o valor mais provável.
-```
-
-### P4 — Pneu: atrito efetivo e raio dinâmico
-
-```text
-Pneu de truck racing 22.5" (Copa Truck usa spec por evento definida pela Promotora;
-ETRC usa Goodyear 315/70 R22.5 de competição):
-(1) Coeficiente de atrito lateral/longitudinal efetivo de pico em pista seca —
-    literatura, telemetria publicada ou papers (comparar com slick de carro ~1.4-1.6
-    e pneu de rua ~0.9);
-(2) Raio dinâmico/rolamento do 295/80 R22.5 e do 315/70 R22.5 sob carga de corrida;
-(3) Pressões operacionais típicas a quente no truck racing.
-2 fontes por item. Preciso de bounds realistas de µ para calibração (suspeito que
-µ=1.6 no meu modelo está compensando outros erros).
-```
-
-### P5 — Transmissão e diferencial reais das equipes
-
-```text
-Copa Truck 2024-2026: quais caixas de câmbio as equipes usam de fato (regulamento
-Art. 15 permite livre com 6 marchas manuais H — ZF 6S 1000 TO, ZF 6S 1700,
-Eaton FS-6306/6406A?) e quais as relações de marcha exatas dessas caixas?
-Diferencial obrigatório Meritor MS-145/147: quais relações de coroa/pinhão as
-equipes escolhem por pista (curta tipo Cascavel vs longa tipo Interlagos)?
-Fontes: catálogos ZF/Eaton/Meritor (relações oficiais das caixas citadas),
-entrevistas de equipe, regulamento CBA. 2 fontes por caixa.
-```
-
-### P6 — Motor: curvas de torque reais
-
-```text
-Motores da Copa Truck 2024-2026 (diesel 13L, limite 1250 cv com pop-off lacrada):
-quais motores cada marca usa (MWM? Cummins? MAN D28? Scania DC13? Volvo D13?) e
-existe curva de torque/potência publicada (dyno, imprensa técnica, equipe)?
-Preciso de: torque de pico (N·m e rpm), potência de pico (cv e rpm), rotação de
-corte, e o formato da curva (flat entre X e Y rpm?).
-Se não houver dado Copa Truck, curvas do ETRC (Buggyra publica dados do D28) servem
-como paradigma. 2 fontes por motor.
-```
-
-### P7 — Frenagem: desaceleração real
-
-```text
-Truck racing (Copa Truck/ETRC): qual a desaceleração máxima típica em frenagem forte
-(m/s² ou g)? ETRC usa discos ventilados com refrigeração a água e freia de 160 a 60
-km/h em distâncias publicadas — há telemetria ou dados de imprensa?
-Contexto: meu modelo usa 9.0-9.4 m/s² (~0.95 g), que parece alto para 4.5-5 t;
-preciso de valor real p/ validar ou corrigir, junto com o típico ponto de frenagem.
-2 fontes independentes.
-```
+> Os prompts P1–P7 que viviam aqui foram consolidados em **`saru-KB/00_meta/PROMPTS.md` §4**
+> (ids `CT-P1`, `CT-P2`, `CT-P4`, `CT-P5`, `CT-P6`, mais `CT-kroll` e `09`). Status de cada um:
+> `saru-KB/00_meta/PESQUISAS.md`.
+>
+> **Regra inalterada:** o agente prepara, o **Vitor** roda no Gemini/Perplexity. Exigir **≥2 fontes
+> independentes por afirmação**; colar resultados em `docs/research/` e só então promover valores
+> aos presets. ETRC é o análogo técnico mais documentado — usar como proxy marcando a origem.
+>
+> **Estado (2026-07-26):** P7 (frenagem) ✅ · pista ✅ · P3 aero 🟡 parcial (Cx 0,74 do `.xrk`;
+> falta A_front e Cl — virou item 4 do prompt `09`) · **P1 governador, P2 massa/CG/Iz, P4 µ de pneu,
+> P5 relações de caixa, P6 curvas de torque = ABERTOS**.
 
 ## 6. Critério de "calibrado" (gate da sprint)
 

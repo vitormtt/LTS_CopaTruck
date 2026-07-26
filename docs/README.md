@@ -20,7 +20,7 @@
 | # | Trabalho | Fonte/spec | Bloqueio |
 |---|---|---|---|
 | 1 | **Pipeline track/µ** (TUM→ICP→Frenet→opt_min_curv→µ do G-G + gates). Aumenta o LAP SIMULADO em direção ao real (µ desce de 1.6); validação = canais batendo (RMSE v ≤3 km/h, apex ≤2, G-G ≤0.05G) | `Validação de Lap Sim.md` | nenhum — próximo épico |
-| 2 | Pesquisa **k_roll** (roll 13.3°/g atual = irreal; RSD afeta balance) | `research/PROMPT_roll_stiffness.md` (pronto) | Vitor roda |
+| 2 | Pesquisa **k_roll** (roll 13.3°/g atual = irreal; RSD afeta balance) | prompt `CT-kroll` em `saru-KB/00_meta/PROMPTS.md` §4 | Vitor roda |
 | 3 | Pesquisas restantes: **P2 h_cg/Iz · P5 ratios/equipe · P6 curva de torque completa** · P3 resto (A_front/Cl). *Absorvidos dos docs 07-10: P7 freio ✓ · P4 µ (método+probe .xrk ✓, executa no pipeline) · P1 parcial (radar 160 = zonal, >200 atingível → decisão de modelagem do governador) · P2 massa ✓ (4.800–5.300 kg)* | `CALIBRATION_AUDIT` §5 | Vitor roda |
 | 4 | **Qualy multi-fase** (outlap aquecendo pneu → flying). Pré-req: acoplar temp→grip (hoje decorativo) = épico warmup/pneu #3 | pedido 2026-07-10 | modelo térmico |
 | 5 | **Brake bias por curva** no solver (piloto real ajusta por curva); depois otimizador por-curva. Batch/sweep segue só p/ espaço de SETUP (pressões, asa) | pedido 2026-07-10 | design |
