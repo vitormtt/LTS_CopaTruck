@@ -22,9 +22,7 @@ from src.visualization.components import (
     pista_page,
     simulacao_page,
     resultados_page,
-    optimization_page,
-    overlay_page,
-    race_report_page
+    optimization_page
 )
 from src.visualization.components.helpers import RESULTS_PATH, cached_solver
 
@@ -34,14 +32,12 @@ PAGES = {
     "Track":         pista_page,
     "Simulation":    simulacao_page,
     "Results":       resultados_page,
-    "Telemetry Overlay": overlay_page,
-    "Race Report":   race_report_page,
     "Optimization":  optimization_page,
 }
 
 # App-wide layout configuration
 st.set_page_config(
-    page_title="LTS Copa Truck",
+    page_title="LTS Perez — Copa Truck",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -53,7 +49,7 @@ if "page" not in st.session_state:
     st.session_state.page = "Parameters"
 
 # Sidebar — brand block + navigation
-st.sidebar.title("LTS Copa Truck")
+st.sidebar.title("LTS Perez — Copa Truck")
 st.sidebar.caption("Lap Time Simulator · SARU Dynamics")
 st.sidebar.markdown("---")
 
@@ -133,4 +129,4 @@ PAGES[st.session_state.page]()
 
 # Sidebar footer — brand attribution
 st.sidebar.markdown("---")
-st.sidebar.caption("© SARU Dynamics · LTS Copa Truck")
+st.sidebar.caption("© SARU Dynamics · LTS Perez (Copa Truck)")

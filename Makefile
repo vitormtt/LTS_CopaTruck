@@ -1,52 +1,41 @@
-# LapTimeSimulator_CopaTruck — developer entry points.
-# Mirrors the Makefile convention used in LapTimeSimulator_SARU.
-.DEFAULT_GOAL := help
-COMPOSE := docker compose
+.PHONY: venv install run test clean help
 
-help: ## List available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+PYTHON ?= python3
+VENV ?= .venv
 
-check-env: ## Verify .env exists (copy from .env.example yourself)
-	@test -f .env || (echo "ERROR: .env not found — run: cp .env.example .env" && exit 1)
+ifeq ($(OS),Windows_NT)
+    BIN := $(VENV)/Scripts
+    PY := python
+else
+    BIN := $(VENV)/bin
+    PY := $(PYTHON)
+endif
 
-build: check-env ## Build the app image
-	$(COMPOSE) build
+help:
+	@echo "LTS Perez — Comandos disponiveis:"
+	@echo "  make venv     - Cria o ambiente virtual (.venv)"
+	@echo "  make install  - Instala dependencias do requirements.txt"
+	@echo "  make run      - Executa o simulador Streamlit (app.py)"
+	@echo "  make test     - Roda a suite de testes automatizados"
+	@echo "  make clean    - Remove ambiente virtual e caches Python"
 
-up: check-env ## Start db + Streamlit app in the background (dev: hot-reload via override)
-	$(COMPOSE) up -d
+venv:
+	$(PY) -m venv $(VENV)
+	@echo "Ambiente virtual criado em $(VENV)."
 
-up-fg: check-env ## Start the stack in the foreground (Ctrl-C to stop)
-	$(COMPOSE) up
+install: venv
+	$(BIN)/pip install --upgrade pip
+	$(BIN)/pip install -r requirements.txt
+	@echo "Dependencias instaladas com sucesso."
 
-down: ## Stop the stack (keep volumes)
-	$(COMPOSE) down
+run:
+	$(BIN)/streamlit run app.py
 
-down-clean: ## Stop the stack AND remove volumes (drops the database!)
-	$(COMPOSE) down -v
+test:
+	$(BIN)/pytest
 
-ps: ## Show service status
-	$(COMPOSE) ps
-
-logs: ## Tail logs for all services
-	$(COMPOSE) logs -f --tail=100
-
-logs-app: ## Tail logs for the Streamlit app
-	$(COMPOSE) logs -f --tail=100 app
-
-db-shell: check-env ## Open psql inside the db container
-	$(COMPOSE) exec db sh -c 'psql -U $$POSTGRES_USER -d $$POSTGRES_DB'
-
-seed: check-env ## Populate Postgres with the fleet presets from data/vehicle_models.json
-	$(COMPOSE) exec app python src/database/seed_db.py
-
-migrate: check-env ## Apply relational schema + migrate legacy JSONB vehicles
-	$(COMPOSE) exec app python src/database/migrate.py
-
-test: ## Run the pytest suite locally (.venv)
-	.venv/bin/python -m pytest -q
-
-run-local: check-env ## Run Streamlit outside Docker, pointed at the compose db
-	@set -a; . ./.env; set +a; \
-	DB_HOST=localhost .venv/bin/python -m streamlit run src/visualization/interface.py
-
-.PHONY: help check-env build up up-fg down down-clean ps logs logs-app db-shell seed test run-local
+clean:
+	rm -rf $(VENV)
+	rm -rf build dist *.egg-info
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	@echo "Limpeza concluida."
