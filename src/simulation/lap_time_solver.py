@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import time as _time
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -77,19 +77,11 @@ class _LegacyVehicleParams:
     pacejka_C: float = 1.3
     pacejka_D: float = 1.0
     pacejka_E: float = 0.97
-    # Brake disc thermal model (ENDURANCE_THERMAL)
-    disc_thermal_efficiency: float = 0.90
-    disc_mass_kg: float = 30.0
-    disc_specific_heat: float = 460.0
-    disc_convection: float = 60.0
-    disc_area_m2: float = 0.35
-    disc_initial_temp_c: float = 60.0
-    fade_onset_temp_c: float = 450.0
-    fade_full_temp_c: float = 800.0
-    fade_min_factor: float = 0.5
     Cx: float = 0.85
     A_front: float = 8.7
     Cl: float = 0.0
+    aero_balance: float = 0.5
+    combined_grip_factor: float = 0.9
     k_roll_front: float = 115_000.0
     k_roll_rear: float = 115_000.0
     track_width: float = 1.565
@@ -191,11 +183,6 @@ class SimulationResult:
     _a_long_ms2: np.ndarray = field(repr=False, default=None)
     _a_lat_ms2: np.ndarray = field(repr=False, default=None)
 
-    # ENDURANCE_THERMAL channels (None in other modes)
-    disc_temp_front_c: Optional[np.ndarray] = None
-    disc_temp_rear_c: Optional[np.ndarray] = None
-    brake_fade_factor: Optional[np.ndarray] = None
-
     # Axle slip-angle channels (steady-state bicycle model, Cf/Cr)
     front_slip_angle_deg: Optional[np.ndarray] = None
     rear_slip_angle_deg: Optional[np.ndarray] = None
@@ -287,10 +274,6 @@ class SimulationResult:
             "tyre_press_bar": self.tyre_pressure_bar,
             "fuel_used_l":    self.fuel_used_l,
         })
-        if self.disc_temp_front_c is not None:
-            df["disc_temp_front_c"] = self.disc_temp_front_c
-            df["disc_temp_rear_c"] = self.disc_temp_rear_c
-            df["brake_fade_factor"] = self.brake_fade_factor
         if self.front_slip_angle_deg is not None:
             df["front_slip_angle_deg"] = self.front_slip_angle_deg
             df["rear_slip_angle_deg"] = self.rear_slip_angle_deg
@@ -325,20 +308,71 @@ def _build_flat_params(vp: VehicleParams) -> _LegacyVehicleParams:
     d = vp.to_solver_dict()
     p = _LegacyVehicleParams(**{k: v for k, v in d.items()
                                  if k in _LegacyVehicleParams.__dataclass_fields__})
-    # Set speed limit for trucks (200 km/h = 55.56 m/s to match qualifying telemetry)
-    if vp.category == "Truck" or "truck" in vp.name.lower():
+    # Regulation speed governor: explicit param wins; legacy presets without
+    # it fall back to the Copa Truck 200 km/h limit (Truck) or unlimited.
+    if getattr(vp, "speed_limit_kmh", 0.0) > 0.0:
+        p.speed_limit = vp.speed_limit_kmh / 3.6
+    elif vp.category == "Truck" or "truck" in vp.name.lower():
         p.speed_limit = 200.0 / 3.6
-
     else:
         p.speed_limit = 999.0
     return p
 
 
 
-def _compute_track_geometry(circuit) -> tuple:
-    """Compute ds, s, radius and signed curvature from circuit centerline."""
-    x = circuit.centerline_x
-    y = circuit.centerline_y
+def _driving_line(circuit, vehicle_width_m: float = 0.0) -> tuple:
+    """Racing-line (x, y) for the circuit, cached on the circuit object.
+
+    Falls back to the centerline when the circuit lacks boundary channels.
+    The line depends on track geometry AND the vehicle width (a wider
+    vehicle has a narrower usable corridor), so the cache is keyed by
+    width — switching vehicle models recomputes the line.
+    """
+    key = round(float(vehicle_width_m), 3)
+    cache = getattr(circuit, "_racing_line_xy", None)
+    if isinstance(cache, dict) and key in cache:
+        return cache[key]
+
+    x, y = circuit.centerline_x, circuit.centerline_y
+    have_bounds = all(
+        getattr(circuit, attr, None) is not None and len(getattr(circuit, attr)) == len(x)
+        for attr in ("left_boundary_x", "left_boundary_y",
+                     "right_boundary_x", "right_boundary_y")
+    )
+    if have_bounds:
+        from src.tracks.racing_line import compute_racing_line
+        center = np.column_stack([x, y])
+        left = np.column_stack([circuit.left_boundary_x, circuit.left_boundary_y])
+        right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
+        # Closed loop when the ends nearly meet.
+        closed = bool(np.hypot(x[0] - x[-1], y[0] - y[-1]) < 5.0)
+        rl = compute_racing_line(center, left, right, closed=closed,
+                                 vehicle_width_m=vehicle_width_m)
+        result = (rl.x, rl.y)
+    else:
+        result = (np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+
+    try:
+        if not isinstance(cache, dict):
+            circuit._racing_line_xy = cache = {}
+        cache[key] = result
+    except (AttributeError, TypeError):
+        pass  # circuit may be immutable; recompute next call
+    return result
+
+
+def _compute_track_geometry(circuit, path: Optional[tuple] = None) -> tuple:
+    """Compute ds, s, radius and signed curvature from a driving line.
+
+    Args:
+        circuit: Circuit with centerline (and optionally boundaries).
+        path: Optional (x, y) driving line; defaults to the centerline.
+    """
+    if path is not None:
+        x, y = path
+    else:
+        x = circuit.centerline_x
+        y = circuit.centerline_y
     n = len(x)
 
     ds = np.zeros(n)
@@ -391,8 +425,20 @@ def _torque_curve_interp(
     return float(np.interp(rpm_c, torque_curve_rpm, torque_curve_nm))
 
 
-def _select_gear_optimal(v: float, p: _LegacyVehicleParams) -> int:
-    """Select gear that maximises drive force within RPM range."""
+def _select_gear_optimal(
+    v: float,
+    p: _LegacyVehicleParams,
+    torque_map_rpm: Optional[list] = None,
+    torque_map_nm: Optional[list] = None,
+) -> int:
+    """Select gear that maximises drive force within RPM range.
+
+    Uses the SAME torque source as the force solver (_engine_torque: real
+    engine map when present, analytic fallback otherwise). The old version
+    always used the analytic road-truck curve, whose exponential decay
+    kills torque above ~2000 rpm — the selector then parked the truck in
+    top gear for the whole lap (no shifts, rpm trace pinned low).
+    """
     rpm_min_opt = p.rpm_idle * 1.5
     rpm_max_opt = p.rpm_max * 0.90
     best_gear, best_force = 1, -1.0
@@ -403,7 +449,7 @@ def _select_gear_optimal(v: float, p: _LegacyVehicleParams) -> int:
         if rpm > p.rpm_max:
             continue
         rpm = max(rpm, p.rpm_idle)
-        T = _torque_curve(rpm, p)
+        T = _engine_torque(rpm, p, torque_map_rpm or [], torque_map_nm or [])
         F = T * ratio_total / p.r_wheel
         if F > fallback_force:
             fallback_force = F
@@ -533,19 +579,52 @@ def _bias_limited_decel(
 
 _G = 9.81           # [m/s²]
 _RHO_AIR = 1.225    # [kg/m³]
+# Tyre section width added to the axle track to approximate the vehicle's
+# structural width for the racing-line corridor (295/80 R22.5 → 0.295 m).
+_TYRE_SECTION_WIDTH_M = 0.295
+# Output sign of the lateral-accel channel: +1 → positive Ay = left turn
+# (kappa > 0). Flip to -1.0 if a reference logger uses the opposite mount.
+_AY_SIGN = 1.0
+# Convergence tolerance for the qualifying flying-lap periodic v0 [m/s].
+_QUALI_V0_TOL_MS = 0.3
 # Tyre load sensitivity: relative grip loss per unit of relative lateral
 # load transfer on an axle (Pacejka 2012, load-sensitivity of mu).
 # Calibrated against the validated lap-time windows (Cascavel 76-82 s,
 # Interlagos 125-132 s) together with the preset mu/Cx values.
-_S_LOAD = 0.082
+# Tyre load sensitivity — calibrated against real telemetry windows
+# (VW 31320: Cascavel 76-82 s, Interlagos 125-132 s), see
+# docs/SESSION_LOG_2026-06-11.md. Do not retune without cross-validation.
+_S_LOAD = 0.12
+
+# Couple per-wheel hot pressure/temperature into the friction coefficient
+# (the "full car" tyre model). Off by default: not yet calibrated against
+# real telemetry — see the note inside _axle_grip().
+_THERMAL_GRIP_COUPLING = False
+
+# Optimum cold-pressure for the p_factor curve. Copa Truck regulation
+# tyres are heavy-truck radials (295/80 R22.5 per the 2024-2026 CBA
+# research dossier, docs/COPA_TRUCK_POWERTRAIN_RESEARCH.md) operating
+# around 95-125 psi — NOT the ~34 psi passenger-car optimum previously
+# hardcoded. The CBA rulebook does not mandate a pressure, so this is an
+# operating-range estimate: calibrate with Perez telemetry before
+# enabling _THERMAL_GRIP_COUPLING. The quadratic loss factor is rescaled
+# to keep the same relative sensitivity over the 10x wider psi range.
+_P_OPT_PSI = 110.0
+_P_FACTOR_K = 1.5e-5   # was 0.0015 on the ~34 psi car scale
+
 # Fraction of the peak axle lateral force usable as yaw-moment authority
 # during direction changes (quasi-transient extension)
 _YAW_MOMENT_FACTOR = 0.5
 # Reference braking-zone duration for the first-order pedal-response
 # model: effective decel = cap * T_ref / (T_ref + t_response/2)
 _T_BRAKE_ZONE_REF = 2.5   # [s]
-# Threshold-braking margin of a driver without ABS (Limpert 1999)
-_NO_ABS_MODULATION = 0.94
+# Threshold-braking margin of a driver without ABS (Limpert 1999). How close
+# to the lock-up limit the driver can hold depends on brake balance: when both
+# axles lock together (balance -> 1) they modulate near the limit; when one
+# axle locks far earlier (balance -> 0) they must leave a bigger margin, so an
+# imbalanced bias costs lap time. Only active for abs_enabled = False.
+_NO_ABS_MOD_BALANCED = 0.97
+_NO_ABS_MOD_IMBALANCED = 0.88
 # Speed hysteresis below the last upshift point before a downshift is
 # allowed (prevents shift limit-cycles when the cut drops the speed)
 _DOWNSHIFT_HYST_MS = 2.0   # [m/s]
@@ -601,10 +680,17 @@ def _axle_grip(
     Calculates individual normal forces on the 4 wheels and adjusts the friction coefficient
     at each corner based on hot tire pressure (PSI) and temperature (degC).
     """
-    F_normal = max(m_cur * _G + _aero_normal_force(p, v),
-                   _F_NORMAL_FLOOR_FRAC * m_cur * _G)
-    Fz_f_static = F_normal * p.lr / p.L
-    Fz_r_static = F_normal * p.lf / p.L
+    F_aero = _aero_normal_force(p, v)
+    # Distribute weight by CG position, and aero downforce by aero_balance (CoP)
+    Fz_f_static = (m_cur * _G * p.lr / p.L) + (F_aero * p.aero_balance)
+    Fz_r_static = (m_cur * _G * p.lf / p.L) + (F_aero * (1.0 - p.aero_balance))
+    
+    # Enforce floor limits per axle to prevent singularities
+    floor_f = _F_NORMAL_FLOOR_FRAC * m_cur * _G * (p.lr / p.L)
+    floor_r = _F_NORMAL_FLOOR_FRAC * m_cur * _G * (p.lf / p.L)
+    Fz_f_static = max(Fz_f_static, floor_f)
+    Fz_r_static = max(Fz_r_static, floor_r)
+    F_normal = Fz_f_static + Fz_r_static
 
     k_total = max(p.k_roll_front + p.k_roll_rear, 1.0)
     frac_f = p.k_roll_front / k_total
@@ -615,35 +701,50 @@ def _axle_grip(
     dfz_f = lat_moment / tw_f * frac_f
     dfz_r = lat_moment / tw_r * (1.0 - frac_f)
 
-    # 4 wheels normal loads
+    # 4 wheels normal loads. Load is CONSERVED per axle: when the inner
+    # wheel lifts (clamped at zero), the outer wheel carries the remaining
+    # axle load — never more. Without the complementary assignment the
+    # outer wheel got 0.5*Fz + dfz with no upper cap, creating phantom
+    # axle load (and grip) that grew with lateral transfer.
     Fz_LF = max(0.5 * Fz_f_static - dfz_f, 0.0)
-    Fz_RF = max(0.5 * Fz_f_static + dfz_f, 0.0)
+    Fz_RF = Fz_f_static - Fz_LF
     Fz_LR = max(0.5 * Fz_r_static - dfz_r, 0.0)
-    Fz_RR = max(0.5 * Fz_r_static + dfz_r, 0.0)
+    Fz_RR = Fz_r_static - Fz_LR
 
-    # Optimal PSI and temperature constants
-    p_opt = 34.0
-    T_opt = 80.0
+    # Thermal/pressure -> grip coupling ("full car" tyre model).
+    # DISABLED until calibrated against real telemetry (Perez-data .xrk):
+    # coupling hot pressure/temperature into mu moved lap times away from
+    # the validated telemetry windows (VW 31320: Cascavel 76-82 s,
+    # Interlagos 125-132 s) and inverted physical expectations (a narrower
+    # track heats tyres faster and gained more from t_factor than it lost
+    # to load transfer). Per-wheel temperature/pressure stay live as
+    # telemetry channels; re-enable only with cross-validation (Golden
+    # Rule 2). _P_OPT_PSI/_P_FACTOR_K are sized for the regulation truck
+    # tyre pressure range — see the module constants and the dossier in
+    # docs/COPA_TRUCK_POWERTRAIN_RESEARCH.md.
+    if _THERMAL_GRIP_COUPLING:
+        T_opt = 80.0
 
-    # LF pressure & temperature factors
-    P_hot_lf = p.P_cold_lf_psi + 0.174 * (temp_lf - _T_AMBIENT_TYRE)
-    p_factor_lf = max(1.0 - 0.0015 * (P_hot_lf - p_opt) ** 2, 0.5)
-    t_factor_lf = max(1.0 - 0.00005 * (temp_lf - T_opt) ** 2, 0.5)
+        P_hot_lf = p.P_cold_lf_psi + 0.174 * (temp_lf - _T_AMBIENT_TYRE)
+        p_factor_lf = max(1.0 - _P_FACTOR_K * (P_hot_lf - _P_OPT_PSI) ** 2, 0.5)
+        t_factor_lf = max(1.0 - 0.00005 * (temp_lf - T_opt) ** 2, 0.5)
 
-    # FR pressure & temperature factors
-    P_hot_fr = p.P_cold_fr_psi + 0.174 * (temp_fr - _T_AMBIENT_TYRE)
-    p_factor_fr = max(1.0 - 0.0015 * (P_hot_fr - p_opt) ** 2, 0.5)
-    t_factor_fr = max(1.0 - 0.00005 * (temp_fr - T_opt) ** 2, 0.5)
+        P_hot_fr = p.P_cold_fr_psi + 0.174 * (temp_fr - _T_AMBIENT_TYRE)
+        p_factor_fr = max(1.0 - _P_FACTOR_K * (P_hot_fr - _P_OPT_PSI) ** 2, 0.5)
+        t_factor_fr = max(1.0 - 0.00005 * (temp_fr - T_opt) ** 2, 0.5)
 
-    # LR pressure & temperature factors
-    P_hot_lr = p.P_cold_lr_psi + 0.174 * (temp_lr - _T_AMBIENT_TYRE)
-    p_factor_lr = max(1.0 - 0.0015 * (P_hot_lr - p_opt) ** 2, 0.5)
-    t_factor_lr = max(1.0 - 0.00005 * (temp_lr - T_opt) ** 2, 0.5)
+        P_hot_lr = p.P_cold_lr_psi + 0.174 * (temp_lr - _T_AMBIENT_TYRE)
+        p_factor_lr = max(1.0 - _P_FACTOR_K * (P_hot_lr - _P_OPT_PSI) ** 2, 0.5)
+        t_factor_lr = max(1.0 - 0.00005 * (temp_lr - T_opt) ** 2, 0.5)
 
-    # RR pressure & temperature factors
-    P_hot_rr = p.P_cold_rr_psi + 0.174 * (temp_rr - _T_AMBIENT_TYRE)
-    p_factor_rr = max(1.0 - 0.0015 * (P_hot_rr - p_opt) ** 2, 0.5)
-    t_factor_rr = max(1.0 - 0.00005 * (temp_rr - T_opt) ** 2, 0.5)
+        P_hot_rr = p.P_cold_rr_psi + 0.174 * (temp_rr - _T_AMBIENT_TYRE)
+        p_factor_rr = max(1.0 - _P_FACTOR_K * (P_hot_rr - _P_OPT_PSI) ** 2, 0.5)
+        t_factor_rr = max(1.0 - 0.00005 * (temp_rr - T_opt) ** 2, 0.5)
+    else:
+        p_factor_lf = t_factor_lf = 1.0
+        p_factor_fr = t_factor_fr = 1.0
+        p_factor_lr = t_factor_lr = 1.0
+        p_factor_rr = t_factor_rr = 1.0
 
     # Axle-level load sensitivity scaling
     mu_base = mu * p.pacejka_D
@@ -685,6 +786,32 @@ def _v_corner_limit(
     return float(np.sqrt(max(mu_lat * m_cur * _G * radius_i / denom, 0.0)))
 
 
+def _axle_lock_balance(
+    p: _LegacyVehicleParams,
+    mu_eff: float,
+    m_cur: float,
+    F_normal: float,
+) -> float:
+    """
+    Balance of the two axle first-lock decelerations (0-1).
+
+    Returns the ratio of the smaller to the larger of the front- and
+    rear-limited lock-up decelerations (same Limpert formulas as
+    ``_bias_limited_decel``). 1.0 means both axles reach lock-up together
+    (ideal bias); values near 0 mean one axle locks far earlier, so a
+    driver without ABS must leave a bigger modulation margin.
+    """
+    g_eff = F_normal / m_cur
+    b = p.brake_balance / 100.0
+    mu_h_over_l = mu_eff * p.h_cg / p.L
+
+    a_rear = mu_eff * g_eff * (p.lf / p.L) / ((1.0 - b) + mu_h_over_l)
+    a_front = (mu_eff * g_eff * (p.lr / p.L) / (b - mu_h_over_l)
+               if b > mu_h_over_l else float("inf"))
+    lo, hi = min(a_front, a_rear), max(a_front, a_rear)
+    return lo / hi if hi > 0.0 else 0.0
+
+
 def _brake_system_cap(
     p: _LegacyVehicleParams,
     mu_total: float,
@@ -697,6 +824,10 @@ def _brake_system_cap(
     Combines the system decel limit, the bias/first-axle-lockup limit,
     the ABS / driver-modulation efficiency and a first-order pedal
     response loss (average ramp loss over a reference braking zone).
+
+    Without ABS the driver-modulation factor scales with the axle lock
+    balance, so an imbalanced brake bias (one axle locking far earlier)
+    costs lap time — the incentive to tune bias toward a balanced lock-up.
     """
     cap = min(p.max_decel,
               _bias_limited_decel(p, mu_total, m_cur, F_normal))
@@ -704,7 +835,9 @@ def _brake_system_cap(
         cap *= max(1.0 - _ABS_SLIP_SENSITIVITY
                    * abs(p.abs_slip_target - _ABS_PEAK_SLIP), 0.5)
     else:
-        cap *= _NO_ABS_MODULATION
+        balance = _axle_lock_balance(p, mu_total, m_cur, F_normal)
+        cap *= (_NO_ABS_MOD_IMBALANCED
+                + (_NO_ABS_MOD_BALANCED - _NO_ABS_MOD_IMBALANCED) * balance)
     cap *= _T_BRAKE_ZONE_REF / (_T_BRAKE_ZONE_REF
                                 + max(p.brake_response_time, 0.0) / 2.0)
     return cap
@@ -787,9 +920,10 @@ def _backward_pass(
         # All four wheels brake: capacity-weighted total friction
         mu_total = (mu_f * Fz_f + mu_r * Fz_r) / F_normal
 
-        a_grip = np.sqrt(max(
-            (mu_total * F_normal / m_cur) ** 2 - a_lat_next ** 2, 0.0
-        ))
+        a_grip_pure = mu_total * F_normal / m_cur
+        a_grip = np.sqrt(max(a_grip_pure ** 2 - a_lat_next ** 2, 0.0))
+        if a_lat_next > 0.1 * a_grip_pure:
+            a_grip *= p.combined_grip_factor
         cap = _brake_system_cap(p, mu_total, m_cur, F_normal)
         if fade is not None:
             cap *= fade[i + 1]
@@ -806,6 +940,8 @@ def _finalize_pass(
     p: _LegacyVehicleParams,
     ds: np.ndarray,
     radius: np.ndarray,
+    torque_map_rpm: Optional[list] = None,
+    torque_map_nm: Optional[list] = None,
 ) -> dict:
     """
     Shared time-integration pass over the FINAL speed profile.
@@ -835,7 +971,8 @@ def _finalize_pass(
     for i in range(n):
         v_i = v_profile[i]
         a_lat[i] = v_i ** 2 / max(radius[i], 1.0)
-        gear_profile[i] = _select_gear_optimal(max(v_i, 0.5), p)
+        gear_profile[i] = _select_gear_optimal(max(v_i, 0.5), p,
+                                               torque_map_rpm, torque_map_nm)
         rpm_profile[i] = _get_rpm(v_i, gear_profile[i], p)
 
         m_cur = p.m + max(
@@ -933,7 +1070,7 @@ def _run_ggv_solver(
     m_fuel_initial = p.initial_fuel_l * p.fuel_density
 
     v_profile[0] = v0
-    gear_cur = _select_gear_optimal(max(v0, 0.5), p)
+    gear_cur = _select_gear_optimal(max(v0, 0.5), p, torque_map_rpm, torque_map_nm)
     shift_dist_remaining = 0.0
     v_last_upshift = 0.0
     a_long_prev = 0.0
@@ -943,7 +1080,8 @@ def _run_ggv_solver(
         if shift_dist_remaining > 0.0:
             gear = gear_cur  # hold gear through the traction cut
         else:
-            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p)
+            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p,
+                                            torque_map_rpm, torque_map_nm)
             if gear_opt > gear_cur:
                 # Upshift interrupts traction for shift_time
                 shift_dist_remaining = v_prev * p.shift_time
@@ -980,9 +1118,10 @@ def _run_ggv_solver(
         # transfer m*a*h/L (evaluated with the previous step's accel)
         Fz_r_trac = Fz_r + m_cur * max(a_long_prev, 0.0) * p.h_cg / p.L
         F_yr_used = m_cur * a_lat_cur * p.lf / p.L
-        F_trac_grip = np.sqrt(max(
-            (mu_r * Fz_r_trac) ** 2 - F_yr_used ** 2, 0.0
-        ))
+        F_trac_pure = mu_r * Fz_r_trac
+        F_trac_grip = np.sqrt(max(F_trac_pure ** 2 - F_yr_used ** 2, 0.0))
+        if F_yr_used > 0.1 * F_trac_pure:
+            F_trac_grip *= p.combined_grip_factor
         F_traction = min(F_traction, F_trac_grip)
 
         a = (F_traction - F_drag) / m_cur
@@ -1018,10 +1157,11 @@ def _run_ggv_solver(
         dfz_f = lat_moment / tw_f * frac_f
         dfz_r = lat_moment / tw_r * (1.0 - frac_f)
 
+        # Per-axle load conservation (see _axle_grip)
         Fz_LF = max(0.5 * Fz_f_static - dfz_f, 0.0)
-        Fz_RF = max(0.5 * Fz_f_static + dfz_f, 0.0)
+        Fz_RF = Fz_f_static - Fz_LF
         Fz_LR = max(0.5 * Fz_r_static - dfz_r, 0.0)
-        Fz_RR = max(0.5 * Fz_r_static + dfz_r, 0.0)
+        Fz_RR = Fz_r_static - Fz_LR
 
         Fz_static_f = 0.5 * Fz_f_static
         Fz_static_r = 0.5 * Fz_r_static
@@ -1055,7 +1195,8 @@ def _run_ggv_solver(
         v_profile, fuel_acum, p, mu, ds, radius,
         temp_LF=temp_LF, temp_RF=temp_RF, temp_LR=temp_LR, temp_RR=temp_RR
     )
-    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius)
+    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius,
+                              torque_map_rpm, torque_map_nm)
 
     p_tyre_hot = p_tyre_cold + 0.012 * np.maximum(temp_tyre - 25.0, 0.0)
 
@@ -1072,147 +1213,6 @@ def _run_ggv_solver(
     }
 
 
-# ---------------------------------------------------------------------------
-# Brake disc thermal model (ENDURANCE_THERMAL mode)
-# ---------------------------------------------------------------------------
-
-def _run_thermal_brake_model(
-    v_profile: np.ndarray,
-    ds: np.ndarray,
-    p: _LegacyVehicleParams,
-    ambient_temp_c: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Lumped-mass disc temperature and fade traces for a speed profile.
-
-    Per braking step, the dissipated kinetic power routed to the discs is
-
-        q = eta_disc * m * |a_brake| * v
-
-    split front/rear by the brake balance and onto two discs per axle.
-    Each axle's lumped disc integrates
-
-        m_d * c_p * dT = (q_disc - h(v) * A * (T - T_amb)) * dt
-
-    with speed-scaled forced convection h(v) = h0 * (1 + 0.04 v)
-    (rotating-disc forced convection, Limpert 1999). The fade factor
-    degrades linearly from 1.0 at fade_onset_temp_c down to
-    fade_min_factor at fade_full_temp_c, driven by the hotter axle.
-
-    Args:
-        v_profile: Speed at each track point [m/s].
-        ds: Segment lengths [m].
-        p: Flat solver parameters (brake thermal fields).
-        ambient_temp_c: Ambient air temperature [degC].
-
-    Returns:
-        Tuple (T_front, T_rear, fade_factor) — arrays of length n.
-    """
-    n = len(v_profile)
-    T_front = np.full(n, p.disc_initial_temp_c)
-    T_rear = np.full(n, p.disc_initial_temp_c)
-    fade = np.ones(n)
-
-    m_total = p.m + p.initial_fuel_l * p.fuel_density
-    b_front = p.brake_balance / 100.0
-    heat_cap = p.disc_mass_kg * p.disc_specific_heat  # [J/K] per disc
-
-    fade_span = max(p.fade_full_temp_c - p.fade_onset_temp_c, 1e-6)
-
-    for i in range(1, n):
-        v_prev = v_profile[i - 1]
-        dt = ds[i] / max(v_profile[i], 0.1)
-        dt = min(dt, 2.0)
-
-        a_actual = ((v_profile[i] ** 2 - v_prev ** 2) / (2.0 * ds[i])
-                    if ds[i] > 0 else 0.0)
-
-        if a_actual < 0.0:
-            q_total = p.disc_thermal_efficiency * m_total * (-a_actual) * v_prev
-        else:
-            q_total = 0.0
-
-        # Two discs per axle
-        q_front_disc = q_total * b_front / 2.0
-        q_rear_disc = q_total * (1.0 - b_front) / 2.0
-
-        h_conv = p.disc_convection * (1.0 + 0.04 * v_prev)
-        for T_arr, q_disc in ((T_front, q_front_disc), (T_rear, q_rear_disc)):
-            cooling = h_conv * p.disc_area_m2 * (T_arr[i - 1] - ambient_temp_c)
-            T_arr[i] = T_arr[i - 1] + (q_disc - cooling) * dt / heat_cap
-
-        T_hot = max(T_front[i], T_rear[i])
-        fade[i] = float(np.clip(
-            1.0 - (1.0 - p.fade_min_factor)
-            * (T_hot - p.fade_onset_temp_c) / fade_span,
-            p.fade_min_factor, 1.0,
-        ))
-
-    return T_front, T_rear, fade
-
-
-def _run_endurance_thermal(
-    p, x, y, n, ds, s, radius, kappa, mu, v0,
-    temp_ini, p_tyre_cold,
-    torque_map_rpm, torque_map_nm,
-    ambient_temp_c: float,
-    thermal_iterations: int,
-    temp_LF_ini: Optional[float] = None,
-    temp_RF_ini: Optional[float] = None,
-    temp_LR_ini: Optional[float] = None,
-    temp_RR_ini: Optional[float] = None,
-) -> dict:
-    """
-    ENDURANCE_THERMAL solver: GGV lap with brake-fade feedback.
-
-    Wraps the standard two-pass GGV solver without modifying it: the
-    lap is first solved normally, then the disc thermal model and a
-    fade-scaled shared backward pass iterate to a fixed point (fade
-    only ever reduces braking capacity, so the lap time is
-    non-decreasing per iteration and convergence is monotonic).
-
-    With fade disabled (onset temperature above any reached disc
-    temperature) the output is bit-identical to the QUALIFYING mode.
-    """
-    raw = _run_ggv_solver(
-        p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-        mu=mu, v0=v0,
-        temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-        torque_map_rpm=torque_map_rpm,
-        torque_map_nm=torque_map_nm,
-        temp_LF_ini=temp_LF_ini,
-        temp_RF_ini=temp_RF_ini,
-        temp_LR_ini=temp_LR_ini,
-        temp_RR_ini=temp_RR_ini,
-    )
-
-    T_front, T_rear, fade = _run_thermal_brake_model(
-        raw["v_profile"], ds, p, ambient_temp_c
-    )
-
-    for _ in range(max(thermal_iterations, 1)):
-        if np.all(fade >= 1.0 - 1e-12):
-            break  # no fade: untouched GGV result is the fixed point
-
-        v_profile = raw["v_profile"]
-        fuel_acum = raw["fuel_acum"]
-
-        _backward_pass(
-            v_profile, fuel_acum, p, mu, ds, radius, fade=fade,
-            temp_LF=raw.get("temp_LF"), temp_RF=raw.get("temp_RF"),
-            temp_LR=raw.get("temp_LR"), temp_RR=raw.get("temp_RR")
-        )
-        raw.update(_finalize_pass(v_profile, fuel_acum, p, ds, radius))
-
-        T_front, T_rear, fade = _run_thermal_brake_model(
-            v_profile, ds, p, ambient_temp_c
-        )
-
-    raw["disc_temp_front"] = T_front
-    raw["disc_temp_rear"] = T_rear
-    raw["brake_fade_factor"] = fade
-    return raw
-
 
 # ---------------------------------------------------------------------------
 # Standing start solver
@@ -1225,7 +1225,15 @@ def _run_standing_start(
     torque_map_rpm, torque_map_nm,
 ) -> dict:
     """Standing start: clutch ramp + GGV forward/backward (live subsystems)."""
-    CLUTCH_RAMP_DIST = 10.0
+    # 30 m clutch-engagement ramp reproduces the validated +~7.6 s gap of a
+    # 4.5 t truck standing start vs qualifying (docs/SESSION_LOG_2026-06-11.md).
+    CLUTCH_RAMP_DIST = 30.0
+
+    # A launch RPM above the engine's rev limiter would zero the torque
+    # (fuel cut) and freeze the vehicle on the start line — clamp it to the
+    # usable engine band (SimulationConfig's default of 4500 rpm is a GT
+    # value; Copa Truck diesels rev to ~3500).
+    launch_rpm = float(np.clip(launch_rpm, p.rpm_idle, p.rpm_max * 0.9))
 
     v_profile = np.zeros(n)
     temp_LF = np.ones(n) * temp_ini
@@ -1248,7 +1256,8 @@ def _run_standing_start(
         if shift_dist_remaining > 0.0 and not in_launch:
             gear = gear_cur  # hold gear through the traction cut
         else:
-            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p)
+            gear_opt = _select_gear_optimal(max(v_prev, 0.5), p,
+                                            torque_map_rpm, torque_map_nm)
             if gear_opt > gear_cur:
                 if not in_launch:
                     shift_dist_remaining = v_prev * p.shift_time
@@ -1289,9 +1298,10 @@ def _run_standing_start(
             )
         else:
             F_yr_used = m_cur * a_lat_cur * p.lf / p.L
-            F_trac_grip = np.sqrt(max(
-                (mu_r * Fz_r_trac) ** 2 - F_yr_used ** 2, 0.0
-            ))
+            F_trac_pure = mu_r * Fz_r_trac
+            F_trac_grip = np.sqrt(max(F_trac_pure ** 2 - F_yr_used ** 2, 0.0))
+            if F_yr_used > 0.1 * F_trac_pure:
+                F_trac_grip *= p.combined_grip_factor
             F_traction = min(F_traction_e, F_trac_grip)
 
         launch_dist_accum += ds[i]
@@ -1326,10 +1336,11 @@ def _run_standing_start(
         dfz_f = lat_moment / tw_f * frac_f
         dfz_r = lat_moment / tw_r * (1.0 - frac_f)
 
+        # Per-axle load conservation (see _axle_grip)
         Fz_LF = max(0.5 * Fz_f_static - dfz_f, 0.0)
-        Fz_RF = max(0.5 * Fz_f_static + dfz_f, 0.0)
+        Fz_RF = Fz_f_static - Fz_LF
         Fz_LR = max(0.5 * Fz_r_static - dfz_r, 0.0)
-        Fz_RR = max(0.5 * Fz_r_static + dfz_r, 0.0)
+        Fz_RR = Fz_r_static - Fz_LR
 
         Fz_static_f = 0.5 * Fz_f_static
         Fz_static_r = 0.5 * Fz_r_static
@@ -1361,7 +1372,8 @@ def _run_standing_start(
         v_profile, fuel_acum, p, mu, ds, radius,
         temp_LF=temp_LF, temp_RF=temp_RF, temp_LR=temp_LR, temp_RR=temp_RR
     )
-    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius)
+    channels = _finalize_pass(v_profile, fuel_acum, p, ds, radius,
+                              torque_map_rpm, torque_map_nm)
     # Preserve the launch RPM at the start line for telemetry realism
     channels["rpm_profile"][0] = launch_rpm
 
@@ -1407,96 +1419,86 @@ def run_simulation(
     torque_map_rpm = params_eff.engine.torque_curve_rpm
     torque_map_nm  = params_eff.engine.torque_curve_nm
 
-    x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit)
+    # The racing line IS the driving path (operator directive 2026-07-10):
+    # a hot lap never follows the centerline. use_racing_line=False remains
+    # only as an explicit debug/centerline-baseline escape hatch. The
+    # corridor is narrowed by the vehicle's structural width — sourced from
+    # the preset (Copa Truck: 2.465 m, CBA reg. Fig. 14) with a derived
+    # fallback (track width plus one tyre section) for width-less presets.
+    vehicle_width = float(getattr(p, "vehicle_width", 0.0)) \
+        or (float(p.track_width) + _TYRE_SECTION_WIDTH_M)
+    driving_path = _driving_line(circuit, vehicle_width) \
+        if getattr(config, "use_racing_line", True) else None
+    x, y, n, ds, s, radius, kappa = _compute_track_geometry(circuit, driving_path)
 
     mu          = params_eff.tire.friction_coefficient
     temp_ini    = config.track_temperature_c + 5.0
     p_tyre_cold = config.setup.tyre_pressure_avg_front
 
-    if config.is_qualifying() or config.is_thermal():
-        v0 = 10.0
-    elif config.is_flying_lap():
+    if config.is_flying_lap():
         v0 = config.v_entry_kmh / 3.6
-    else:
+    elif config.is_standing_start():
         v0 = 0.0
+    else:  # qualifying — seed for the periodic fixed-point below
+        v0 = 10.0
 
-    if config.is_qualifying() or config.is_flying_lap() or config.is_thermal():
-        logger.info("[SIM] Executing pre-lap for Flying Lap / Qualifying convergence...")
-        if config.is_thermal():
-            pre_raw = _run_endurance_thermal(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0, temp_ini=temp_ini,
-                p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-                ambient_temp_c=config.ambient_temp_c,
-                thermal_iterations=config.thermal_iterations,
-            )
-        else:
-            pre_raw = _run_ggv_solver(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0,
-                temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-            )
-        v0_conv = pre_raw["v_profile"][-1]
-        temp_LF_ini = pre_raw["temp_LF"][-1]
-        temp_RF_ini = pre_raw["temp_RF"][-1]
-        temp_LR_ini = pre_raw["temp_LR"][-1]
-        temp_RR_ini = pre_raw["temp_RR"][-1]
-
-        # Run converged actual lap
-        if config.is_thermal():
-            raw = _run_endurance_thermal(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0_conv, temp_ini=temp_ini,
-                p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-                ambient_temp_c=config.ambient_temp_c,
-                thermal_iterations=config.thermal_iterations,
-                temp_LF_ini=temp_LF_ini,
-                temp_RF_ini=temp_RF_ini,
-                temp_LR_ini=temp_LR_ini,
-                temp_RR_ini=temp_RR_ini,
-            )
-        else:
-            raw = _run_ggv_solver(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0_conv,
-                temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-                temp_LF_ini=temp_LF_ini,
-                temp_RF_ini=temp_RF_ini,
-                temp_LR_ini=temp_LR_ini,
-                temp_RR_ini=temp_RR_ini,
-            )
+    # Tyres still start at ambient state (no thermal pre-lap): the validation
+    # windows were calibrated cold, and a thermal warm-up must not be
+    # reintroduced without re-validating vs real telemetry. The ENTRY SPEED,
+    # however, now uses the flying-lap periodic boundary condition for
+    # qualifying (below) instead of the old cold v0 = 10 m/s (~36 km/h).
+    if config.is_standing_start():
+        raw = _run_standing_start(
+            p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
+            mu=mu, launch_rpm=config.launch_rpm,
+            wheelspin_limit=config.wheelspin_limit_slip,
+            temp_ini=temp_ini,
+            p_tyre_cold=p_tyre_cold,
+            torque_map_rpm=torque_map_rpm,
+            torque_map_nm=torque_map_nm,
+        )
     else:
-        # Standing start or other modes do not run pre-lap
-        if config.is_standing_start():
-            raw = _run_standing_start(
+        def _ggv(v_start: float) -> dict:
+            return _run_ggv_solver(
                 p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, launch_rpm=config.launch_rpm,
-                wheelspin_limit=config.wheelspin_limit_slip,
-                temp_ini=temp_ini,
-                p_tyre_cold=p_tyre_cold,
-                torque_map_rpm=torque_map_rpm,
-                torque_map_nm=torque_map_nm,
-            )
-        else:
-            raw = _run_ggv_solver(
-                p=p, x=x, y=y, n=n, ds=ds, s=s, radius=radius, kappa=kappa,
-                mu=mu, v0=v0,
+                mu=mu, v0=v_start,
                 temp_ini=temp_ini, p_tyre_cold=p_tyre_cold,
                 torque_map_rpm=torque_map_rpm,
                 torque_map_nm=torque_map_nm,
             )
+
+        raw = _ggv(v0)
+        if config.is_qualifying() and getattr(config, "use_flying_lap_start", False):
+            # Flying-lap periodic boundary condition: a qualifying lap is a
+            # closed loop, so the speed crossing the start/finish line equals
+            # the speed leaving it on the identical previous lap. Fixed-point
+            # iterate v0 -> v_profile[-1] (a handful of passes converge, as it
+            # is the same track point). Removes the unphysical ~36 km/h launch
+            # that made sector 1 a slow climb.
+            #
+            # OFF by default: on the Cascavel anchor it cuts the lap ~4.5 s
+            # (80.7 -> 76.2), overshooting the real 1:19.5 pole by ~3.3 s
+            # because mu was co-calibrated with the cold slow start (same knot
+            # as use_racing_line). Enable only alongside a mu recalibration
+            # validated vs .xrk — see SPM P0b.
+            for _ in range(5):
+                v_end = float(raw["v_profile"][-1])
+                if abs(v_end - v0) < _QUALI_V0_TOL_MS:
+                    break
+                v0 = v_end
+                raw = _ggv(v0)
 
     lap_time = raw["time_profile"][-1]
     v_ms     = raw["v_profile"]
     a_long   = raw["a_long"]
+
+    # Sign the lateral-accel channel by turn direction (kappa > 0 = left).
+    # The solver only ever needs |a_lat| (grip is a friction circle), so
+    # signing the OUTPUT channel leaves lap time and every grip term
+    # untouched — it just makes the G-G diagram bilateral and lets the .xrk
+    # overlay compare left vs right corners. Convention: + = left, which
+    # matches the Copa Truck AiM loggers (LateralAcc corr +0.93 vs v*yaw).
+    a_lat_signed = _AY_SIGN * np.sign(kappa) * np.abs(raw["a_lat"])
 
     # Calculate instantaneous maximum deceleration capacity at each point for brake_pct
     a_decel_max = np.zeros(n)
@@ -1517,7 +1519,10 @@ def run_simulation(
             p, mu, m_cur, v, a_lat, t_lf, t_fr, t_lr, t_rr
         )
         mu_total = (mu_f * Fz_f + mu_r * Fz_r) / F_normal
-        a_grip = np.sqrt(max((mu_total * F_normal / m_cur) ** 2 - a_lat ** 2, 0.0))
+        a_grip_pure = mu_total * F_normal / m_cur
+        a_grip = np.sqrt(max(a_grip_pure ** 2 - a_lat ** 2, 0.0))
+        if a_lat > 0.1 * a_grip_pure:
+            a_grip *= p.combined_grip_factor
         cap = _brake_system_cap(p, mu_total, m_cur, F_normal)
         if raw.get("brake_fade_factor") is not None:
             cap *= raw["brake_fade_factor"][i]
@@ -1534,7 +1539,7 @@ def run_simulation(
         time              = raw["time_profile"],
         v_kmh             = v_ms * 3.6,
         ax_long_g         = a_long / 9.81,
-        ay_lat_g          = raw["a_lat"] / 9.81,
+        ay_lat_g          = a_lat_signed / 9.81,
         throttle_pct      = throttle,
         brake_pct         = brake,
         steering_deg      = raw["steering_deg"],
@@ -1545,10 +1550,7 @@ def run_simulation(
         tyre_pressure_bar = raw["tyre_pressure"],
         fuel_used_l       = raw["fuel_acum"],
         _a_long_ms2       = a_long,
-        _a_lat_ms2        = raw["a_lat"],
-        disc_temp_front_c = raw.get("disc_temp_front"),
-        disc_temp_rear_c  = raw.get("disc_temp_rear"),
-        brake_fade_factor = raw.get("brake_fade_factor"),
+        _a_lat_ms2        = a_lat_signed,
         front_slip_angle_deg = raw["front_slip_angle_deg"],
         rear_slip_angle_deg  = raw["rear_slip_angle_deg"],
     )
@@ -1605,8 +1607,6 @@ def run_bicycle_model(
     mode_str = config.get("mode", "qualifying")
     if mode_str == "standing_start":
         sim_mode = SimulationMode.STANDING_START
-    elif mode_str == "endurance_thermal":
-        sim_mode = SimulationMode.ENDURANCE_THERMAL
     else:
         sim_mode = SimulationMode.QUALIFYING
 
@@ -1616,6 +1616,10 @@ def run_bicycle_model(
         track_temperature_c=effective_track_temp,
         tyre_compound="slick_dry",
         export_driver_inputs=True,
+        # Racing line and flying start are the physical defaults for a hot
+        # lap; pass False explicitly for centerline/cold-launch baselines.
+        use_racing_line=bool(config.get("use_racing_line", True)),
+        use_flying_lap_start=bool(config.get("use_flying_lap_start", True)),
     )
     # Propagate the vehicle's cold tyre pressure into the setup so the
     # pressure input actually reaches the solver (hot-pressure trace and
@@ -1628,9 +1632,6 @@ def run_bicycle_model(
     if sim_mode == SimulationMode.STANDING_START:
         sim_config.launch_rpm = float(config.get("launch_rpm", 1500.0))
         sim_config.wheelspin_limit_slip = float(config.get("wheelspin_limit", 0.15))
-    elif sim_mode == SimulationMode.ENDURANCE_THERMAL:
-        sim_config.ambient_temp_c = float(config.get("ambient_temp_c", 25.0))
-        sim_config.thermal_iterations = int(config.get("thermal_iterations", 3))
 
     result = run_simulation(
         config=sim_config,
@@ -1657,10 +1658,6 @@ def run_bicycle_model(
         "brake_pct":    result.brake_pct,
         "steering_deg": result.steering_deg,
     }
-    if result.disc_temp_front_c is not None:
-        legacy["disc_temp_front"] = result.disc_temp_front_c
-        legacy["disc_temp_rear"] = result.disc_temp_rear_c
-        legacy["brake_fade_factor"] = result.brake_fade_factor
     if result.front_slip_angle_deg is not None:
         legacy["front_slip_angle_deg"] = result.front_slip_angle_deg
         legacy["rear_slip_angle_deg"] = result.rear_slip_angle_deg

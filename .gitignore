@@ -1,138 +1,40 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
-.eggs/
-
-# Virtual environments
+# Ambientes Virtuais
 .venv/
 venv/
 env/
+ENV/
 
-# IDE
+# Python Cache e Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDEs e Editores
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Simulation outputs
-src/results/
-*.csv
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
-
-# Local scripts / scratch
-extract_hdf5_waypoints.py
-
-# Adjacent repos / workspaces (not part of this project)
-LapTimeSimulator_CopaTruck.git/
-LapTimeSimulator_Generic/
-
-# Claude Code
-.claude/
-
-# ─ claude-code-template ─
-# ──────────────────────────────────────────
-# SARU / vitormtt — .gitignore canonical
-# ──────────────────────────────────────────
-
-# Secrets / credentials
-.env
-.env.*
-!.env.example
-*.credentials*
-.claude/.notebooklm/
-.claude/settings.local.json
-.claude/.sessions/
-
-# Local staging (PDFs migrados para NotebookLM ficam aqui)
-.local/
-
-# PDFs: NotebookLM é o storage canônico — não versionar
-docs/**/*.pdf
-docs/**/*.PDF
-*.pdf
-*.PDF
-!docs/README.md
-!.claude/docs/**
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.venv/
-venv/
-.Python
-build/
-dist/
-*.egg-info/
+# Caches de Testes e Ferramentas
 .pytest_cache/
-.ruff_cache/
 .mypy_cache/
-htmlcov/
+.ruff_cache/
 .coverage
-coverage.xml
+htmlcov/
 
-# Node / TypeScript
-node_modules/
-dist/
-.next/
-.nuxt/
-.turbo/
-out/
-*.tsbuildinfo
-coverage/
-.vite/
+# Logs e Saídas Temporárias
+*.log
+src/results/*.csv
+src/results/*.pdf
 
-# MATLAB / Simulink
-*.asv
-*.autosave
-*.slxc
-slprj/
-codegen/
-*.mexw64
-*.mexa64
-*.mexmaci64
-
-# OS
+# Arquivos do Sistema Operacional
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# IDE
-.idea/
-.vscode/*
-!.vscode/settings.json
-!.vscode/launch.json
-!.vscode/tasks.json
-!.vscode/extensions.json
-
-# Logs
-*.log
-logs/
-
-# Generated/IDE
-outputs/
-src/results/
-__pycache__/
-*.pyc
-.clinerules/
-.cursor/
-.opencode/
-.windsurf/
-*.egg-info/
-
-# User-saved modified tracks (UI persistence)
-tracks/custom/

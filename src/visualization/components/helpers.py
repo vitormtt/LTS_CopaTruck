@@ -8,7 +8,6 @@ import os
 import sys
 import json
 import hashlib
-import time
 from pathlib import Path
 from typing import Dict, Any, Tuple
 import numpy as np
@@ -21,7 +20,6 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from src.simulation.lap_time_solver import run_bicycle_model
-from src.tracks.generate_br_tracks import build_interlagos_real
 from src.tracks.hdf5 import CircuitHDF5Reader
 
 DATA_PATH = str(BASE_DIR / "tracks")
@@ -35,6 +33,40 @@ _solver_result_cache: Dict[str, Dict[str, Any]] = {}
 def fmt_laptime(s: float) -> str:
     """Format lap time float in seconds to MM:SS.mmm format."""
     return f"{int(s // 60)}:{s % 60:06.3f}"
+
+
+def slugify_id(text: str) -> str:
+    """Normalize free text into a storage id (lowercase snake_case)."""
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
+    return re.sub(r"_+", "_", slug)[:50]
+
+
+def persist_simulation_result(
+    vehicle_id: str,
+    track_name: str,
+    mode: str,
+    setup_name: str,
+    result: dict,
+    csv_path: str = None,
+) -> bool:
+    """Aggregate KPIs from a solver result and persist them.
+
+    Storage goes through db_manager (PostgreSQL simulation_results table,
+    JSON fallback) so every run becomes part of the queryable history.
+    """
+    from src.database import db_manager
+    from src.simulation.kpis import compute_kpis
+
+    kpis = compute_kpis(result)
+    return db_manager.save_simulation_result(
+        vehicle_id=vehicle_id,
+        track_id=slugify_id(track_name),
+        mode=mode,
+        setup_name=setup_name,
+        csv_path=csv_path,
+        **kpis,
+    )
 
 
 def _solver_cache_key(params_dict: dict, circuit: Any, config: dict) -> str:
@@ -74,11 +106,12 @@ def cached_solver(
     circuit: Any,
     config: dict,
     save_csv: bool = False,
-    out_path: str = None
+    out_path: str = None,
+    use_cache: bool = True
 ) -> dict:
     """Run solver with in-memory caching to avoid re-computing same setup."""
     key = _solver_cache_key(params_dict, circuit, config)
-    if key in _solver_result_cache:
+    if use_cache and key in _solver_result_cache:
         result = _solver_result_cache[key]
         if save_csv and out_path:
             _save_result_csv(result, out_path)
@@ -143,8 +176,6 @@ def init_session_state() -> None:
         "csv_path": None,
         "all_results": [],
         "params_saved": False,
-        "track_width_scale": 1.0,
-        "saved_track_width_scale": 1.0,
         "track_grip_mult": 1.0,
         "saved_track_grip_mult": 1.0,
         "track_dirty": False,

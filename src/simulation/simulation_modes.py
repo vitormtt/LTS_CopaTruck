@@ -31,14 +31,11 @@ class SimulationMode(Enum):
     FLYING_LAP       : lap from a prescribed constant entry speed.
     STANDING_START   : lap from standstill with launch sequence.
     ROLLING_START    : alias for FLYING_LAP (backward compatibility).
-    ENDURANCE_THERMAL: qualifying-style lap with brake disc thermal
-                       model and temperature-dependent brake fade.
     """
     QUALIFYING        = auto()
     FLYING_LAP        = auto()
     STANDING_START    = auto()
     ROLLING_START     = auto()
-    ENDURANCE_THERMAL = auto()
 
 
 @dataclass
@@ -87,22 +84,28 @@ class SimulationConfig:
     track_temperature_c: float = 35.0
     tyre_compound: str = "slick_dry"
     export_driver_inputs: bool = True
+    # Drive the minimum-curvature racing line instead of the centerline.
+    # Default True since 2026-07-10 (operator directive): a hot lap never
+    # follows the centerline. False = explicit centerline-baseline debug.
+    use_racing_line: bool = True
+    # Start the qualifying lap from the flying-lap periodic speed (v0 = exit
+    # speed of the closed lap) instead of the cold ~36 km/h launch. Default
+    # True since 2026-07-10: a qualifying hot lap IS a flying lap by
+    # definition — the old v0=10 m/s launch leaked ~4.5 s into the lap and
+    # the mu fudge was co-calibrated around it. Standing start unaffected.
+    use_flying_lap_start: bool = True
     notes: str = ""
 
     v_entry_kmh: float = 100.0
     launch_rpm: float = 4500.0
     wheelspin_limit_slip: float = 0.25
 
-    # ENDURANCE_THERMAL parameters
-    ambient_temp_c: float = 25.0   # Ambient air temperature [degC]
-    thermal_iterations: int = 3    # Fixed-point fade <-> braking iterations
-
     # Backward-compat aliases for HEAD-era attributes
     v0: float = 0.0
     lap_count: int = 1
 
     def __post_init__(self) -> None:
-        """Sync lap_count → n_laps; lap_count is deprecated, n_laps is authoritative."""
+        """Sync lap_count -> n_laps; lap_count is deprecated, n_laps is authoritative."""
         if self.lap_count != self.n_laps:
             import warnings
             warnings.warn(
@@ -125,9 +128,6 @@ class SimulationConfig:
     def is_rolling_start(self) -> bool:
         return self.mode in (SimulationMode.ROLLING_START, SimulationMode.FLYING_LAP)
 
-    def is_thermal(self) -> bool:
-        return self.mode == SimulationMode.ENDURANCE_THERMAL
-
     def describe(self) -> str:
         """Human-readable summary string for logging."""
         base = (
@@ -138,11 +138,6 @@ class SimulationConfig:
             base += f" v_entry={self.v_entry_kmh:.1f} km/h"
         if self.is_standing_start():
             base += f" launch_rpm={self.launch_rpm:.0f} rpm"
-        if self.is_thermal():
-            base += (
-                f" T_amb={self.ambient_temp_c:.0f}°C"
-                f" iters={self.thermal_iterations}"
-            )
         return base
 
 
@@ -155,11 +150,6 @@ class SimulationConfig:
     def standing_start(cls, track_id: str = "interlagos", **kwargs) -> "SimulationConfig":
         """Shortcut constructor for standing start simulation."""
         return cls(mode=SimulationMode.STANDING_START, v0=0.0, lap_count=1, **kwargs)
-
-    @classmethod
-    def endurance_thermal(cls, track_id: str = "interlagos", **kwargs) -> "SimulationConfig":
-        """Shortcut constructor for the brake-thermal endurance lap."""
-        return cls(mode=SimulationMode.ENDURANCE_THERMAL, n_laps=1, lap_count=1, **kwargs)
 
     @classmethod
     def rolling_start(cls, v0_kmh: float, track_id: str = "interlagos", **kwargs) -> "SimulationConfig":

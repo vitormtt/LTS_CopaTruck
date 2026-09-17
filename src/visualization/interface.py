@@ -22,27 +22,24 @@ from src.visualization.components import (
     pista_page,
     simulacao_page,
     resultados_page,
-    compare_page,
-    optimization_page,
-    batch_run_page
+    optimization_page
 )
-from src.visualization.components.helpers import RESULTS_PATH, cached_solver, fmt_laptime
+from src.visualization.components.helpers import RESULTS_PATH, cached_solver
 
 # Routing dictionary
 PAGES = {
     "Parameters":    parametros_veiculo_page,
     "Track":         pista_page,
     "Simulation":    simulacao_page,
-    "Batch Simulation": batch_run_page,
     "Results":       resultados_page,
-    "Compare":       compare_page,
     "Optimization":  optimization_page,
 }
 
 # App-wide layout configuration
 st.set_page_config(
-    page_title="LapTimeSimulator — Copa Truck",
-    layout="wide"
+    page_title="LTS Perez — Copa Truck",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 # Initialize Session State
@@ -51,9 +48,10 @@ init_session_state()
 if "page" not in st.session_state:
     st.session_state.page = "Parameters"
 
-# Sidebar navigation menu
-st.sidebar.title("LapTimeSimulator")
-st.sidebar.caption("Copa Truck")
+# Sidebar — brand block + navigation
+st.sidebar.title("LTS Perez — Copa Truck")
+st.sidebar.caption("Lap Time Simulator · SARU Dynamics")
+st.sidebar.markdown("---")
 
 page_list = list(PAGES.keys())
 try:
@@ -62,21 +60,21 @@ except ValueError:
     current_idx = 0
 
 # Radio selection maps to page
-selected_page = st.sidebar.radio("Navigate:", page_list, index=current_idx)
+selected_page = st.sidebar.radio("Navigation", page_list, index=current_idx)
 if selected_page != st.session_state.page:
     st.session_state.page = selected_page
     st.rerun()
 
-# --- Global Play Button ---
+# --- Global run block ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("Global Simulation")
+st.sidebar.subheader("Run simulation")
 
 if st.session_state.circuit is None:
-    st.sidebar.warning("Select a track in the Track tab first.")
+    st.sidebar.info("Select a track on the Track page to enable the run.")
 elif st.session_state.vehicle_params is None or not st.session_state.params_saved:
-    st.sidebar.warning("Configure and save a vehicle in the Parameters tab first.")
+    st.sidebar.info("Save a vehicle setup on the Parameters page to enable the run.")
 else:
-    if st.sidebar.button("Run Simulation", width="stretch", type="primary", key="global_sim_button"):
+    if st.sidebar.button("Run simulation", width="stretch", type="primary", key="global_sim_button"):
         with st.sidebar.spinner("Running QSS solver..."):
             vp = st.session_state.vehicle_params
             params_dict = vp.to_solver_dict()
@@ -85,6 +83,8 @@ else:
             # Track grip multiplier scales the tyre friction coefficient
             grip_mult = float(getattr(st.session_state.circuit,
                                       "grip_multiplier", 1.0))
+            # Racing line is always the driving path (solver default);
+            # the Track-page toggle is visualization-only.
             solver_config = {
                 "coef_aderencia": vp.tire.friction_coefficient * grip_mult,
             }
@@ -126,3 +126,7 @@ else:
 
 # Execute selected page
 PAGES[st.session_state.page]()
+
+# Sidebar footer — brand attribution
+st.sidebar.markdown("---")
+st.sidebar.caption("© SARU Dynamics · LTS Perez (Copa Truck)")

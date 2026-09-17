@@ -25,6 +25,8 @@ from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
 import json
 
+from .brake_hardware import BrakeHardware, brake_force_from_hardware
+
 
 @dataclass
 class VehicleMassGeometry:
@@ -45,6 +47,10 @@ class VehicleMassGeometry:
     track_width_rear: float  # Rear track width [m]
     cg_height: float         # CG height above ground [m]
     Iz: float                # Yaw moment of inertia [kg·m²]
+    # Structural (bodywork) width [m] — narrows the racing-line corridor.
+    # Copa Truck: 2.465 m (CBA reg. Fig. 14: max width at tyre shoulder
+    # 2450 mm +15). 0.0 = derive from track width + one tyre section.
+    vehicle_width: float = 0.0
     Ix: float = 0.0          # Roll moment of inertia [kg·m²] (3DOF+)
     Iy: float = 0.0          # Pitch moment of inertia [kg·m²] (future)
 
@@ -78,6 +84,12 @@ class TireParams:
     cornering_stiffness_rear: float   # Rear axle cornering stiffness [N/rad]
     friction_coefficient: float       # Peak friction coefficient mu [-]
     wheel_radius: float               # Effective rolling radius [m]
+    combined_grip_factor: float = 0.9 # Non-linear derating factor for combined slip limits [-]
+
+    # Selected tyre model for the DESIGN view: 'linear' | 'pacejka'.
+    # The lap solver still runs the linear friction-circle model; wiring
+    # Pacejka into the solver is a separate cross-validated change.
+    tire_model: str = "linear"
 
     # Pacejka Magic Formula coefficients (nonlinear models)
     pacejka_B: float = 10.0   # Stiffness factor [-]
@@ -85,14 +97,14 @@ class TireParams:
     pacejka_D: float = 1.0    # Peak factor [-]
     pacejka_E: float = 0.97   # Curvature factor [-]
 
-    # Cold tyre pressure (passed to ThermalPacejkaTire)
-    cold_pressure_bar: float = 1.8  # Cold tyre pressure [bar]
+    # Cold tyre pressure (passed to ThermalPacejkaTire) — truck scale (110 psi)
+    cold_pressure_bar: float = 7.58  # Cold tyre pressure [bar]
 
     # Individual cold tyre pressures [psi]
-    cold_pressure_lf_psi: float = 26.1
-    cold_pressure_fr_psi: float = 26.1
-    cold_pressure_lr_psi: float = 26.1
-    cold_pressure_rr_psi: float = 26.1
+    cold_pressure_lf_psi: float = 110.0
+    cold_pressure_fr_psi: float = 110.0
+    cold_pressure_lr_psi: float = 110.0
+    cold_pressure_rr_psi: float = 110.0
 
     # Thermal model (future tire temperature simulation)
     thermal_capacity: float = 0.0      # Tire thermal capacity [J/K]
@@ -120,6 +132,7 @@ class AeroParams:
     frontal_area: float       # Frontal area [m²]
     lift_coefficient: float   # Cl [-] (negative = downforce)
     air_density: float = 1.225  # Air density [kg/m³] at sea level, 15°C
+    aero_balance: float = 0.5   # Fraction of aerodynamic downforce on the front axle (0.0 to 1.0)
 
 
 @dataclass
@@ -264,6 +277,16 @@ class BrakeParams:
     fade_full_temp_c: float = 800.0
     fade_min_factor: float = 0.5
 
+    # Optional per-axle brake hardware (Limpert chain). When BOTH axles are
+    # present, max_brake_force is DERIVED from the hardware instead of the
+    # hand-tuned number above. Keys per axle: n_pistons, piston_diameter_m,
+    # line_pressure_bar, pad_friction, disc_effective_radius_m (the wheel
+    # radius comes from TireParams.wheel_radius). Source: docs/Especificações
+    # Freio Copa Truck.md §9 (Knorr SN7 + Fras-le PD/116, pneumatic-equivalent
+    # line pressures).
+    hardware_front: Optional[Dict[str, float]] = None
+    hardware_rear: Optional[Dict[str, float]] = None
+
 
 @dataclass
 class VehicleParams:
@@ -295,6 +318,11 @@ class VehicleParams:
     initial_fuel_l: float = 100.0            # [L] initial fuel load
     fuel_density_kg_per_l: float = 0.85      # [kg/L] diesel
 
+    # Regulation speed governor [km/h]. Copa Truck 2025 limits trucks to
+    # 200 km/h. 0.0 = not set: solver falls back to 200 km/h for Truck
+    # category and unlimited otherwise (back-compat with old presets).
+    speed_limit_kmh: float = 0.0
+
     # Metadata
     name: str = "Unnamed Vehicle"
     manufacturer: str = ""
@@ -315,7 +343,7 @@ class VehicleParams:
             mg['track_width_rear'] = mg['track_width_front']
         tire_data = dict(data['tire'])
         if 'cold_pressure_lf_psi' not in tire_data:
-            bar_val = tire_data.get('cold_pressure_bar', 1.8)
+            bar_val = tire_data.get('cold_pressure_bar', 7.58)
             tire_data['cold_pressure_lf_psi'] = bar_val * 14.5038
             tire_data['cold_pressure_fr_psi'] = bar_val * 14.5038
             tire_data['cold_pressure_lr_psi'] = bar_val * 14.5038
@@ -333,6 +361,7 @@ class VehicleParams:
             fuel_consumption_l_per_km=data.get('fuel_consumption_l_per_km', 1.5),
             initial_fuel_l=data.get('initial_fuel_l', 100.0),
             fuel_density_kg_per_l=data.get('fuel_density_kg_per_l', 0.85),
+            speed_limit_kmh=data.get('speed_limit_kmh', 0.0),
             name=data.get('name', 'Unnamed Vehicle'),
             manufacturer=data.get('manufacturer', ''),
             year=data.get('year', 0),
@@ -351,6 +380,20 @@ class VehicleParams:
             data = json.load(f)
         return cls.from_dict(data)
 
+    def derived_brake_force(self) -> Optional[float]:
+        """Total brake force [N] from per-axle hardware, if configured.
+
+        Returns:
+            Force from the Limpert chain when both axle hardware blocks are
+            present, else None (caller falls back to brake.max_brake_force).
+        """
+        if not (self.brake.hardware_front and self.brake.hardware_rear):
+            return None
+        r_wheel = self.tire.wheel_radius
+        front = BrakeHardware(wheel_radius_m=r_wheel, **self.brake.hardware_front)
+        rear = BrakeHardware(wheel_radius_m=r_wheel, **self.brake.hardware_rear)
+        return brake_force_from_hardware(front, rear)
+
     def to_solver_dict(self) -> Dict:
         """
         Flat dictionary compatible with run_bicycle_model() interface.
@@ -366,6 +409,7 @@ class VehicleParams:
             'lf': mg.lf,
             'lr': mg.lr,
             'h_cg': mg.cg_height,
+            'vehicle_width': mg.vehicle_width,
             'Iz': mg.Iz,
             'track_width': mg.track_width_avg,   # solver expects scalar
             'track_width_front': mg.track_width_front,
@@ -381,6 +425,8 @@ class VehicleParams:
             'Cr': self.tire.cornering_stiffness_rear,
             'mu': self.tire.friction_coefficient,
             'r_wheel': self.tire.wheel_radius,
+            'combined_grip_factor': self.tire.combined_grip_factor,
+            'tire_model': self.tire.tire_model,
             # Pacejka coefficients (used by ThermalPacejkaTire)
             'pacejka_B': self.tire.pacejka_B,
             'pacejka_C': self.tire.pacejka_C,
@@ -412,7 +458,9 @@ class VehicleParams:
             # --- Brakes ---
             'max_decel': self.brake.max_deceleration,
             'brake_balance': self.brake.brake_balance,
-            'max_brake_force': self.brake.max_brake_force,
+            'max_brake_force': self.derived_brake_force() or self.brake.max_brake_force,
+            'brake_hw_front': self.brake.hardware_front,
+            'brake_hw_rear': self.brake.hardware_rear,
             'abs_slip_target': self.brake.abs_slip_target,
             'abs_enabled': self.brake.abs_enabled,
             'brake_response_time': self.brake.brake_response_time,
@@ -430,6 +478,7 @@ class VehicleParams:
             'Cx': self.aero.drag_coefficient,
             'A_front': self.aero.frontal_area,
             'Cl': self.aero.lift_coefficient,
+            'aero_balance': self.aero.aero_balance,
 
             # --- Fuel model ---
             'fuel_per_km': self.fuel_consumption_l_per_km,  # legacy, unused by solver
@@ -461,6 +510,7 @@ class VehicleParams:
                 track_width_front=tw_front,
                 track_width_rear=tw_rear,
                 cg_height=data.get('h_cg', 1.1),
+                vehicle_width=data.get('vehicle_width', 0.0),
                 Iz=data.get('Iz', 15000.0),
                 Ix=data.get('Ix', 2000.0),
                 Iy=data.get('Iy', 18000.0),
@@ -470,20 +520,23 @@ class VehicleParams:
                 cornering_stiffness_rear=data.get('Cr', 120000.0),
                 friction_coefficient=data.get('mu', 1.1),
                 wheel_radius=data.get('r_wheel', 0.65),
+                combined_grip_factor=data.get('combined_grip_factor', 0.9),
+                tire_model=data.get('tire_model', 'linear'),
                 pacejka_B=data.get('pacejka_B', 10.0),
                 pacejka_C=data.get('pacejka_C', 1.3),
                 pacejka_D=data.get('pacejka_D', 1.0),
                 pacejka_E=data.get('pacejka_E', 0.97),
-                cold_pressure_bar=data.get('P_cold_bar', 1.8),
-                cold_pressure_lf_psi=data.get('P_cold_lf_psi', data.get('P_cold_bar', 1.8) * 14.5038),
-                cold_pressure_fr_psi=data.get('P_cold_fr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
-                cold_pressure_lr_psi=data.get('P_cold_lr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
-                cold_pressure_rr_psi=data.get('P_cold_rr_psi', data.get('P_cold_bar', 1.8) * 14.5038),
+                cold_pressure_bar=data.get('P_cold_bar', 7.58),
+                cold_pressure_lf_psi=data.get('P_cold_lf_psi', data.get('P_cold_bar', 7.58) * 14.5038),
+                cold_pressure_fr_psi=data.get('P_cold_fr_psi', data.get('P_cold_bar', 7.58) * 14.5038),
+                cold_pressure_lr_psi=data.get('P_cold_lr_psi', data.get('P_cold_bar', 7.58) * 14.5038),
+                cold_pressure_rr_psi=data.get('P_cold_rr_psi', data.get('P_cold_bar', 7.58) * 14.5038),
             ),
             aero=AeroParams(
                 drag_coefficient=data.get('Cx', 0.85),
                 frontal_area=data.get('A_front', 8.7),
                 lift_coefficient=data.get('Cl', 0.0),
+                aero_balance=data.get('aero_balance', 0.5),
             ),
             engine=EngineParams(
                 max_power=data.get('P_max', 600000.0),
@@ -520,6 +573,8 @@ class VehicleParams:
                 fade_onset_temp_c=data.get('fade_onset_temp_c', 450.0),
                 fade_full_temp_c=data.get('fade_full_temp_c', 800.0),
                 fade_min_factor=data.get('fade_min_factor', 0.5),
+                hardware_front=data.get('brake_hw_front'),
+                hardware_rear=data.get('brake_hw_rear'),
             ),
             k_roll=data.get('k_roll', 230_000.0),
             k_roll_front=data.get('k_roll_front', 115_000.0),
@@ -567,11 +622,13 @@ def copa_truck_2dof_default() -> VehicleParams:
             cornering_stiffness_rear=135000.0,
             friction_coefficient=1.62,
             wheel_radius=0.65,
+            combined_grip_factor=0.90,
         ),
         aero=AeroParams(
             drag_coefficient=0.80,
             frontal_area=8.7,
             lift_coefficient=0.0,
+            aero_balance=0.5,
         ),
         engine=EngineParams(
             max_power=850000.0,
@@ -639,5 +696,20 @@ def validate_vehicle_params(params: VehicleParams) -> List[str]:
 
     if not 0.0 <= params.brake.brake_balance <= 100.0:
         errors.append("brake_balance must be between 0 and 100%")
+
+    hw_required = {"n_pistons", "piston_diameter_m", "line_pressure_bar",
+                   "pad_friction", "disc_effective_radius_m"}
+    for label, block in (("front", params.brake.hardware_front),
+                         ("rear", params.brake.hardware_rear)):
+        if block is None:
+            continue
+        missing = hw_required - set(block)
+        if missing:
+            errors.append(
+                f"brake hardware ({label}) missing keys: {sorted(missing)}")
+        elif any(block[k] <= 0 for k in hw_required):
+            errors.append(f"brake hardware ({label}) values must be positive")
+    if (params.brake.hardware_front is None) != (params.brake.hardware_rear is None):
+        errors.append("brake hardware requires BOTH front and rear axle blocks")
 
     return errors

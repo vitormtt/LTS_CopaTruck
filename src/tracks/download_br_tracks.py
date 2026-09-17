@@ -1,6 +1,5 @@
 import os
 import requests
-import sys
 
 def download_track(url, filename):
     print(f"Baixando a pista {filename}...")

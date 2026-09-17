@@ -8,93 +8,120 @@ import os
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-from src.tracks.hdf5 import CircuitData, CircuitHDF5Writer
-from .helpers import DATA_PATH, load_hdf5, load_interlagos_real, init_session_state
+from src.tracks.hdf5 import CircuitData
+from src.tracks.racing_line import compute_racing_line
+from .helpers import DATA_PATH, load_hdf5, init_session_state
+from src.visualization.theme import ACCENT, EDGE_WHITE
+
+
+# Tyre section width added to the axle track for the racing-line corridor —
+# keep in sync with the solver's _TYRE_SECTION_WIDTH_M (295/80 R22.5).
+_TYRE_SECTION_WIDTH_M = 0.295
+
+
+def _vehicle_width_m() -> float:
+    """Structural width of the saved vehicle — preset value (sourced) or
+    the derived fallback (track + one tyre section), same as the solver."""
+    vp = st.session_state.get("vehicle_params")
+    if vp is None:
+        return 0.0
+    sourced = float(getattr(vp.mass_geometry, "vehicle_width", 0.0))
+    return sourced or (float(vp.mass_geometry.track_width_avg)
+                       + _TYRE_SECTION_WIDTH_M)
+
+
+def _racing_line_plot_xy(circuit, plot_data) -> tuple:
+    """Racing line projected into the plot's rotated coordinate frame.
+
+    Uses the saved vehicle's width so the drawn line matches the corridor
+    the solver actually drives.
+    """
+    center = np.column_stack([circuit.centerline_x, circuit.centerline_y])
+    left = np.column_stack([circuit.left_boundary_x, circuit.left_boundary_y])
+    right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
+    closed = bool(np.hypot(*(center[0] - center[-1])) < 5.0)
+    rl = compute_racing_line(center, left, right, closed=closed,
+                             vehicle_width_m=_vehicle_width_m())
+    # Same rotation load_hdf5 applies: x_plot = -(y - y0), y_plot = x - x0.
+    x0, y0 = circuit.centerline_x[0], circuit.centerline_y[0]
+    return -(rl.y - y0), (rl.x - x0)
 
 # Modified tracks are persisted here — source files are never overwritten
 CUSTOM_TRACKS_SUBDIR = "custom"
 
 
 def pista_page() -> None:
-    st.header("🗺️ Track Selection & Configuration")
+    st.header("Track")
+    st.caption("Choose a circuit and set the track grip level before running.")
     init_session_state()
 
-    track_source = st.radio(
-        "Track Source:",
-        ["Interlagos (TUM FTM)", "HDF5 Circuit Files"],
-        horizontal=True,
-    )
+    if not os.path.isdir(DATA_PATH):
+        st.warning(f"Tracks directory not found: {DATA_PATH}")
+        return
 
-    if track_source == "Interlagos (TUM FTM)":
-        circuit, meta, plot_data = load_interlagos_real()
-    else:
-        if not os.path.isdir(DATA_PATH):
-            st.warning(f"Tracks directory not found: {DATA_PATH}")
-            return
-        
-        pistas = [f for f in os.listdir(DATA_PATH) if f.endswith('.hdf5')]
-        # Include user-saved modified tracks (tracks/custom/)
-        custom_dir = os.path.join(DATA_PATH, CUSTOM_TRACKS_SUBDIR)
-        if os.path.isdir(custom_dir):
-            pistas += [
-                os.path.join(CUSTOM_TRACKS_SUBDIR, f)
-                for f in os.listdir(custom_dir) if f.endswith('.hdf5')
-            ]
-        if not pistas:
-            st.warning(f"No .hdf5 track files found in {DATA_PATH}!")
-            return
-        
-        # Determine index of cascavel.hdf5 if available to make it friendly
-        default_idx = 0
-        if "cascavel.hdf5" in pistas:
-            default_idx = pistas.index("cascavel.hdf5")
-            
-        sel = st.selectbox(
-            "Select HDF5 Circuit:",
-            pistas,
-            index=default_idx
-        )
-        sel_path = os.path.join(DATA_PATH, sel)
-        circuit, meta, plot_data = load_hdf5(sel_path, os.path.getmtime(sel_path))
+    # Single source of truth: HDF5 circuit files (centerline + boundaries +
+    # width, self-describing). TUM FTM / GPS are import sources that are
+    # converted to HDF5 offline — not a separate runtime format.
+    pistas = [f for f in os.listdir(DATA_PATH) if f.endswith(".hdf5")]
+    custom_dir = os.path.join(DATA_PATH, CUSTOM_TRACKS_SUBDIR)
+    if os.path.isdir(custom_dir):
+        pistas += [
+            os.path.join(CUSTOM_TRACKS_SUBDIR, f)
+            for f in os.listdir(custom_dir) if f.endswith(".hdf5")
+        ]
+    if not pistas:
+        st.warning(f"No .hdf5 track files found in {DATA_PATH}!")
+        return
+
+    # Default to Cascavel — the trusted calibration anchor.
+    default_idx = pistas.index("cascavel.hdf5") if "cascavel.hdf5" in pistas else 0
+
+    def _track_label(filename: str) -> str:
+        stem = os.path.splitext(os.path.basename(filename))[0]
+        return stem.replace("_", " ").replace("-", " ").title()
+
+    sel = st.selectbox("Circuit", pistas, index=default_idx,
+                       format_func=_track_label)
+    sel_path = os.path.join(DATA_PATH, sel)
+    circuit, meta, plot_data = load_hdf5(sel_path, os.path.getmtime(sel_path))
 
     st.markdown("---")
-    st.subheader("🔧 Edit Track Geometry & Friction")
+    st.subheader("Track grip")
 
-    col_edit1, col_edit2 = st.columns(2)
-    with col_edit1:
-        st.session_state.track_width_scale = st.slider(
-            "Track Width Scale (multiplier):",
-            0.5, 2.0, st.session_state.saved_track_width_scale, 0.05
-        )
-    with col_edit2:
-        st.session_state.track_grip_mult = st.slider(
-            "Track Grip Multiplier (surface friction scale):",
-            0.5, 1.5, st.session_state.saved_track_grip_mult, 0.05
-        )
+    st.session_state.track_grip_mult = st.slider(
+        "Grip multiplier (×)", 0.5, 1.5,
+        st.session_state.saved_track_grip_mult, 0.05,
+        help="Track grip state: scales the tyre friction coefficient at the "
+             "solver boundary. 1.00 = baseline (green track). Raise for a "
+             "rubbered-in, high-grip surface; lower for a cold/dirty track. "
+             "Calibrate it so the sim lap matches a real reference lap.",
+    )
 
-    # Detect unsaved changes
-    if (st.session_state.track_width_scale != st.session_state.saved_track_width_scale or
-            st.session_state.track_grip_mult != st.session_state.saved_track_grip_mult):
+    st.session_state.show_racing_line = st.toggle(
+        "Show racing line on map",
+        value=st.session_state.get("show_racing_line", True),
+        help="Visualization only. The solver ALWAYS drives the minimum-"
+             "curvature racing line (narrowed by the vehicle's width) — "
+             "this toggle just draws/hides it on the map below.",
+    )
+
+    if st.session_state.track_grip_mult != st.session_state.saved_track_grip_mult:
         st.session_state.track_dirty = True
-        st.warning("⚠️ Alterações não salvas na pista! Clique em 'Salvar' para aplicar na simulação.")
-        
-        if st.button("💾 Salvar Alterações da Pista", type="primary"):
-            st.session_state.saved_track_width_scale = st.session_state.track_width_scale
+        st.warning("Unsaved grip change — click *Save* to arm it for the run.")
+        if st.button("Save track changes", type="primary"):
             st.session_state.saved_track_grip_mult = st.session_state.track_grip_mult
             st.session_state.track_dirty = False
-            st.success("✓ Configuração de pista salva com sucesso!")
+            st.success("Track configuration saved.")
             st.rerun()
     else:
         st.session_state.track_dirty = False
-        st.info("ℹ️ Configuração da pista salva e ativa para simulação.")
+        st.caption("Track configuration is saved and armed for the next run.")
 
-    # Apply saved modifications to the active circuit object
-    w_scale = st.session_state.saved_track_width_scale
     g_mult = st.session_state.saved_track_grip_mult
-    
-    # Clone arrays to avoid modifying cached data directly
+
+    # Clone so the cached circuit is never mutated; attach grip multiplier.
     circuit_c = CircuitData(
-        name=meta['name'],
+        name=meta["name"],
         centerline_x=circuit.centerline_x.copy(),
         centerline_y=circuit.centerline_y.copy(),
         left_boundary_x=circuit.left_boundary_x.copy(),
@@ -102,81 +129,43 @@ def pista_page() -> None:
         right_boundary_x=circuit.right_boundary_x.copy(),
         right_boundary_y=circuit.right_boundary_y.copy(),
         track_width=circuit.track_width.copy(),
-        coordinate_system=circuit.coordinate_system
+        coordinate_system=circuit.coordinate_system,
     )
-    
-    # Scale width and recalculate boundaries if modified
-    if w_scale != 1.0:
-        circuit_c.track_width = circuit_c.track_width * w_scale
-        dx = np.gradient(circuit_c.centerline_x)
-        dy = np.gradient(circuit_c.centerline_y)
-        norm = np.sqrt(dx**2 + dy**2) + 1e-12
-        nx = -dy / norm
-        ny = dx / norm
-        hw = circuit_c.track_width / 2.0
-        circuit_c.left_boundary_x = circuit_c.centerline_x + nx * hw
-        circuit_c.left_boundary_y = circuit_c.centerline_y + ny * hw
-        circuit_c.right_boundary_x = circuit_c.centerline_x - nx * hw
-        circuit_c.right_boundary_y = circuit_c.centerline_y - ny * hw
-        
-        # Update plot data dynamically
-        plot_data = {
-            "x_c": -(circuit_c.centerline_y - circuit_c.centerline_y[0]) if track_source != "Interlagos (TUM FTM)" else circuit_c.centerline_x,
-            "y_c": (circuit_c.centerline_x - circuit_c.centerline_x[0]) if track_source != "Interlagos (TUM FTM)" else circuit_c.centerline_y,
-            "left_x": -(circuit_c.left_boundary_y - circuit_c.centerline_y[0]) if track_source != "Interlagos (TUM FTM)" else circuit_c.left_boundary_x,
-            "left_y": (circuit_c.left_boundary_x - circuit_c.centerline_x[0]) if track_source != "Interlagos (TUM FTM)" else circuit_c.left_boundary_y,
-            "right_x": -(circuit_c.right_boundary_y - circuit_c.centerline_y[0]) if track_source != "Interlagos (TUM FTM)" else circuit_c.right_boundary_x,
-            "right_y": (circuit_c.right_boundary_x - circuit_c.centerline_x[0]) if track_source != "Interlagos (TUM FTM)" else circuit_c.right_boundary_y,
-        }
-
-    # Store the configured grip multiplier
     circuit_c.grip_multiplier = g_mult
-
     st.session_state.circuit = circuit_c
     st.session_state.circuit_meta = meta
 
-    # Persist the modified circuit to disk (never overwrites the source)
-    if w_scale != 1.0 or g_mult != 1.0:
-        if st.button("💾 Salvar Pista Modificada (HDF5)",
-                     help="Grava a pista com as modificações em "
-                          f"{DATA_PATH}/{CUSTOM_TRACKS_SUBDIR}/ — o arquivo "
-                          "original nunca é sobrescrito."):
-            custom_dir = os.path.join(DATA_PATH, CUSTOM_TRACKS_SUBDIR)
-            os.makedirs(custom_dir, exist_ok=True)
-            safe_name = str(meta['name']).replace(' ', '_').replace('/', '-')[:40]
-            out_path = os.path.join(custom_dir, f"{safe_name}_modified.hdf5")
-            CircuitHDF5Writer(out_path).write_circuit(
-                circuit_c, extra_attrs={'grip_mult': float(g_mult)}
-            )
-            st.success(f"✓ Pista salva em `{out_path}` — disponível no "
-                       "seletor 'HDF5 Circuit Files'.")
-
-    # Plot track geometry
+    # Plot: white track edges, dashed-orange centerline (racing reference).
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=plot_data['x_c'], y=plot_data['y_c'],
+        x=plot_data["left_x"], y=plot_data["left_y"],
+        mode="lines", name="Track edge",
+        line=dict(color=EDGE_WHITE, width=1.4),
+    ))
+    fig.add_trace(go.Scatter(
+        x=plot_data["right_x"], y=plot_data["right_y"],
+        mode="lines", name="Track edge", showlegend=False,
+        line=dict(color=EDGE_WHITE, width=1.4),
+    ))
+    fig.add_trace(go.Scatter(
+        x=plot_data["x_c"], y=plot_data["y_c"],
         mode="lines", name="Centerline",
-        line=dict(color="royalblue", width=2)
+        line=dict(color=ACCENT, width=1.2, dash="dash"),
     ))
-    fig.add_trace(go.Scatter(
-        x=plot_data['left_x'], y=plot_data['left_y'],
-        mode="lines", name="Left Boundary",
-        line=dict(color='limegreen', dash='dot', width=1)
-    ))
-    fig.add_trace(go.Scatter(
-        x=plot_data['right_x'], y=plot_data['right_y'],
-        mode="lines", name="Right Boundary",
-        line=dict(color='tomato', dash='dot', width=1)
-    ))
-    
-    fig.update_layout(
-        title=meta['name'],
-        xaxis_title="x (m)",
-        yaxis_title="y (m)",
-        margin=dict(l=0, r=0, t=35, b=0),
-        height=450
-    )
+    if st.session_state.get("show_racing_line", True):
+        rlx, rly = _racing_line_plot_xy(circuit_c, plot_data)
+        fig.add_trace(go.Scatter(
+            x=rlx, y=rly, mode="lines", name="Racing line",
+            line=dict(color=ACCENT, width=2.0),
+        ))
+    fig.update_layout(title=meta["name"],
+                      xaxis_title="x — local track frame (m)",
+                      yaxis_title="y — local track frame (m)", height=450,
+                      margin=dict(l=0, r=0, t=35, b=0))
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
     st.plotly_chart(fig, width="stretch")
-    
-    st.success(f"✓ Circuit loaded: **{meta['name']}** | Length: **{meta['length']:.0f} m** | Grip factor: **{g_mult:.2f}x**")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Circuit", meta["name"])
+    c2.metric("Length", f"{meta['length']:.0f} m")
+    c3.metric("Grip factor", f"{g_mult:.2f} ×")

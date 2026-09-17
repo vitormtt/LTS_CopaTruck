@@ -52,27 +52,11 @@ def main() -> None:
             "mode": "standing_start"
         },
         {
-            "id": "scania_r480_cascavel_qualifying",
-            "vehicle_id": "scania_r480",
-            "track_id": "cascavel",
-            "mode": "qualifying"
-        },
-        {
-            "id": "volvo_fh16_interlagos_qualifying",
-            "vehicle_id": "volvo_fh16",
+            "id": "vw_31320_interlagos_qualifying",
+            "vehicle_id": "volkswagen_31320",
             "track_id": "interlagos",
             "mode": "qualifying"
         },
-        {
-            "id": "vw_31320_cascavel_endurance_thermal",
-            "vehicle_id": "volkswagen_31320",
-            "track_id": "cascavel",
-            "mode": "endurance_thermal",
-            # Lower fade onset so the fade feedback path is exercised
-            # (default 450degC stays below the ~370degC single-lap peak)
-            "brake_overrides": {"fade_onset_temp_c": 300.0},
-        },
-
     ]
     
     baselines = {}
@@ -109,8 +93,6 @@ def main() -> None:
         elif mode == "standing_start":
             sim_config = SimulationConfig.standing_start(track_id=track_id)
             sim_config.launch_rpm = 1500.0  # Diesel truck launch RPM
-        elif mode == "endurance_thermal":
-            sim_config = SimulationConfig.endurance_thermal(track_id=track_id)
         else:
             raise ValueError(f"Unknown mode: {mode}")
             
@@ -142,14 +124,6 @@ def main() -> None:
             }
         }
 
-        # Thermal-mode channels (present only for ENDURANCE_THERMAL cases)
-        if result.disc_temp_front_c is not None:
-            baselines[case_id]["channels"]["disc_temp_front_c"] = \
-                compute_array_stats(result.disc_temp_front_c)
-            baselines[case_id]["channels"]["disc_temp_rear_c"] = \
-                compute_array_stats(result.disc_temp_rear_c)
-            baselines[case_id]["channels"]["brake_fade_factor"] = \
-                compute_array_stats(result.brake_fade_factor)
         
     output_path = ROOT / "tests" / "regression_baselines.json"
     with open(output_path, "w", encoding="utf-8") as f:
