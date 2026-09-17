@@ -126,7 +126,7 @@ def generate_pdf_report(res: dict, circuit: Any, meta: dict, vehicle_name: str, 
     )
 
     # 2. Header / Title
-    story.append(Paragraph("SARU Dynamics & HASE Motorsport", body_style))
+    story.append(Paragraph("SARU Dynamics & LTS Perez", body_style))
     story.append(Paragraph("Lap Time Simulation Report", title_style))
     story.append(Spacer(1, 10))
 

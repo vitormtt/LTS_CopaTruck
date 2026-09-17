@@ -7,8 +7,6 @@ from .track import pista_page
 from .simulation import simulacao_page
 from .results import resultados_page
 from .optimization import optimization_page
-from .overlay import overlay_page
-from .race_report import race_report_page
 
 __all__ = [
     "init_session_state",
@@ -18,6 +16,4 @@ __all__ = [
     "simulacao_page",
     "resultados_page",
     "optimization_page",
-    "overlay_page",
-    "race_report_page",
 ]
