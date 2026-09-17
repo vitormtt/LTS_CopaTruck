@@ -208,15 +208,35 @@ Se não abrir automaticamente, basta copiar o endereço indicado no terminal e c
 
 ---
 
-## Uso do Makefile (Git Bash, Linux e macOS)
+## Guia de instalação e execução no Linux e macOS
 
-Para desenvolvedores em ambientes compatíveis com `make` (como Git Bash no Windows, terminais Linux ou macOS), o `Makefile` automatiza todas as tarefas:
+No Linux (Ubuntu, Debian, Fedora, etc.) e no macOS, você pode rodar tanto pelos comandos manuais do terminal quanto pelo `Makefile`:
 
-- Criar ambiente virtual:
-  ```bash
-  make venv
-  ```
-- Instalar dependências:
+### Opção 1: Comandos manuais diretos
+
+1. Abra o terminal na pasta do projeto e crie o ambiente virtual:
+   ```bash
+   python3 -m venv .venv
+   ```
+2. Ative o ambiente virtual:
+   ```bash
+   source .venv/bin/activate
+   ```
+3. Instale as dependências:
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+4. Execute o simulador:
+   ```bash
+   streamlit run app.py
+   ```
+
+### Opção 2: Pelo Makefile (mais rápido)
+
+Se o seu sistema tem o `make` instalado (padrão no Linux e no Git Bash do Windows), basta usar:
+
+- Criar ambiente e instalar dependências:
   ```bash
   make install
   ```
@@ -224,16 +244,14 @@ Para desenvolvedores em ambientes compatíveis com `make` (como Git Bash no Wind
   ```bash
   make run
   ```
-- Rodar a suíte de testes automatizados:
+- Rodar os testes automatizados:
   ```bash
   make test
   ```
-- Limpar arquivos temporários e ambiente virtual:
+- Limpar caches e arquivos temporários:
   ```bash
   make clean
   ```
-
-*Usuários no Prompt de Comando comum do Windows podem ignorar o Makefile e seguir os comandos manuais descritos nas seções anteriores.*
 
 ---
 
