@@ -74,40 +74,71 @@ LTS_Perez_CopaTruck/
 
 ## Guia de instalação no Windows
 
-Siga os passos abaixo na ordem indicada para configurar o simulador em um computador Windows limpo.
+Siga os passos abaixo na ordem indicada. Não pule etapas.
 
-### Passo 0: Verificar e instalar o Python
+### Passo 0: Verificar e instalar o Python (leia com atenção)
 
-1. Abra o Terminal do Windows ou o Prompt de Comando (pressione a tecla `Windows`, digite `cmd` e aperte `Enter`).
-2. Digite o comando abaixo para verificar se o Python já está instalado:
-   ```cmd
-   python --version
-   ```
-3. Se aparecer `Python 3.10.x`, `Python 3.11.x` ou `Python 3.12.x`, avance para o Passo 1.
-4. Se o comando não for reconhecido, instale o Python por uma das opções:
-   - **Opção A (Recomendada - Instalador oficial):** Acesse [python.org/downloads](https://www.python.org/downloads/), baixe a versão estável mais recente do instalador Windows 64-bit. Ao iniciar a instalação, **marque obrigatoriamente a caixa de seleção "Add python.exe to PATH"** na primeira tela antes de clicar em "Install Now".
-   - **Opção B (Via Terminal winget):** Execute no terminal do Windows:
-     ```cmd
-     winget install Python.Python.3.12
-     ```
-   - Feche e reabra o terminal para aplicar a variável de ambiente PATH.
+Antes de qualquer coisa, abra o Prompt de Comando (pressione a tecla `Windows`, digite `cmd` e aperte `Enter`).
+
+#### 1. Testar se o Python já funciona no terminal
+Digite:
+```cmd
+python --version
+```
+- Se a resposta for algo como `Python 3.10.x`, `Python 3.11.x` ou `Python 3.12.x`, faça um teste definitivo executando:
+  ```cmd
+  python -c "print('Python OK!')"
+  ```
+  Se imprimiu `Python OK!`, o Python está pronto. Avance diretamente para o **Passo 1**.
+- **Atenção (pegadinha clássica do Windows):** se ao digitar `python` abrir uma janela da Microsoft Store em vez de mostrar a versão, o Python **não** está configurado ainda. Feche a Microsoft Store e siga o item 2 abaixo.
+- Se o comando `python` não for reconhecido, tente também:
+  ```cmd
+  py --version
+  ```
+  Se `py` funcionar, você pode usar `py` no lugar de `python` nos passos seguintes.
+
+#### 2. Se você NÃO tem Python instalado (como instalar sem erro)
+Escolha uma das duas formas:
+
+- **Forma A (Instalação automática pelo próprio terminal):**
+  No mesmo Prompt de Comando, digite:
+  ```cmd
+  winget install Python.Python.3.12
+  ```
+  Aguarde o download e a barra de progresso terminarem. Quando concluir, **feche o terminal e abra um novo terminal** para carregar as alterações.
+
+- **Forma B (Pelo instalador oficial):**
+  1. Baixe o instalador no site oficial: [python.org/downloads](https://www.python.org/downloads/) (botão amarelo "Download Python 3.x").
+  2. Ao abrir o arquivo `.exe` baixado, **marque obrigatoriamente a caixinha "Add python.exe to PATH"** na parte inferior da primeiríssima tela. Se não marcar essa caixa, o terminal não achará o Python.
+  3. Clique em **Install Now** e aguarde finalizar.
+  4. Feche qualquer janela de terminal que já estava aberta e abra uma nova.
+
+#### 3. Confirmar que o Python e o pip agora funcionam
+No novo terminal, confirme:
+```cmd
+python --version
+pip --version
+```
+Se ambos responderem com a versão, o seu Windows está pronto.
 
 ---
 
 ### Passo 1: Baixar o projeto
 
-Você pode obter o código-fonte de duas maneiras:
+Escolha a forma mais conveniente:
 
-- **Se você tem o Git instalado:**
+- **Se você NÃO tem Git (forma mais rápida):**
+  1. Baixe o pacote compactado clicando no link direto:
+     [Download LTS_CopaTruck (ZIP)](https://github.com/vitormtt/LTS_CopaTruck/archive/refs/heads/main.zip)
+  2. Clique com o botão direito no arquivo baixado `LTS_CopaTruck-main.zip` e escolha **Extrair Tudo...**.
+  3. Entre na pasta descompactada.
+  4. Para abrir o terminal direto nela: clique na barra de endereços no topo da pasta no Windows Explorer, digite `cmd` e aperte `Enter`. O terminal já abrirá dentro da pasta correta.
+
+- **Se você tem Git instalado:**
   ```cmd
   git clone https://github.com/vitormtt/LTS_CopaTruck.git
   cd LTS_CopaTruck
   ```
-- **Se você NÃO tem o Git instalado:**
-  1. Acesse o repositório no GitHub: `https://github.com/vitormtt/LTS_CopaTruck`
-  2. Clique no botão verde **Code** e depois em **Download ZIP**.
-  3. Extraia a pasta baixada em um diretório de sua preferência (por exemplo, na Área de Trabalho ou em `C:\Projetos`).
-  4. Abra a pasta extraída no terminal.
 
 ---
 
