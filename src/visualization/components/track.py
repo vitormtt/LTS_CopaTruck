@@ -30,21 +30,40 @@ def _vehicle_width_m() -> float:
                        + _TYRE_SECTION_WIDTH_M)
 
 
+@st.cache_data
+def _cached_racing_line(
+    center_bytes: bytes,
+    left_bytes: bytes,
+    right_bytes: bytes,
+    closed: bool,
+    width_m: float,
+    x0: float,
+    y0: float,
+    shape: tuple,
+) -> tuple:
+    center = np.frombuffer(center_bytes).reshape(shape)
+    left = np.frombuffer(left_bytes).reshape(shape)
+    right = np.frombuffer(right_bytes).reshape(shape)
+    rl = compute_racing_line(center, left, right, closed=closed, vehicle_width_m=width_m)
+    return -(rl.y - y0), (rl.x - x0)
+
+
 def _racing_line_plot_xy(circuit, plot_data) -> tuple:
     """Racing line projected into the plot's rotated coordinate frame.
 
     Uses the saved vehicle's width so the drawn line matches the corridor
-    the solver actually drives.
+    the solver actually drives. Result is cached in memory.
     """
     center = np.column_stack([circuit.centerline_x, circuit.centerline_y])
     left = np.column_stack([circuit.left_boundary_x, circuit.left_boundary_y])
     right = np.column_stack([circuit.right_boundary_x, circuit.right_boundary_y])
     closed = bool(np.hypot(*(center[0] - center[-1])) < 5.0)
-    rl = compute_racing_line(center, left, right, closed=closed,
-                             vehicle_width_m=_vehicle_width_m())
-    # Same rotation load_hdf5 applies: x_plot = -(y - y0), y_plot = x - x0.
-    x0, y0 = circuit.centerline_x[0], circuit.centerline_y[0]
-    return -(rl.y - y0), (rl.x - x0)
+    w = round(float(_vehicle_width_m()), 3)
+    x0, y0 = float(circuit.centerline_x[0]), float(circuit.centerline_y[0])
+    return _cached_racing_line(
+        center.tobytes(), left.tobytes(), right.tobytes(),
+        closed, w, x0, y0, center.shape
+    )
 
 # Modified tracks are persisted here — source files are never overwritten
 CUSTOM_TRACKS_SUBDIR = "custom"

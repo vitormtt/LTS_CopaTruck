@@ -161,7 +161,7 @@ def load_interlagos_real() -> Tuple[Any, dict, dict]:
 
 
 def init_session_state() -> None:
-    """Initialize standard Streamlit session state properties."""
+    """Initialize standard Streamlit session state properties with sensible defaults."""
     defaults = {
         "vehicle_mode": "Copa Truck",
         "confirmed_mode": None,
@@ -183,3 +183,26 @@ def init_session_state() -> None:
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+    # Auto-inicializa veículo padrão se ainda não definido
+    if st.session_state.vehicle_params is None:
+        try:
+            from src.vehicle.fleet import get_vehicle_by_id
+            from src.vehicle.setup import get_default_setup
+            vp = get_vehicle_by_id(st.session_state.vehicle_id)
+            st.session_state.vehicle_params = vp
+            st.session_state.setup = get_default_setup()
+            st.session_state.params_saved = True
+        except Exception:
+            pass
+
+    # Auto-inicializa pista padrão (Cascavel) se ainda não definida
+    if st.session_state.circuit is None:
+        try:
+            pista_padrao = os.path.join(DATA_PATH, "cascavel.hdf5")
+            if os.path.exists(pista_padrao):
+                c, meta, _ = load_hdf5(pista_padrao, os.path.getmtime(pista_padrao))
+                st.session_state.circuit = c
+                st.session_state.circuit_meta = meta
+        except Exception:
+            pass

@@ -24,7 +24,7 @@ _JSON_MODELS_CACHE: Dict[str, VehicleParams] = {}
 # Auto-refresh: the cache is transparently reloaded from storage once it
 # is older than the TTL, so edits made elsewhere (another session, psql,
 # the seed script) show up in the UI without restarting the app.
-_CACHE_TTL_S = 5.0
+_CACHE_TTL_S = 3600.0
 _cache_loaded_at = 0.0
 _fleet_source = "none"  # "database" | "json" | "none" — for UI display
 
